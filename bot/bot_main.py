@@ -1171,6 +1171,11 @@ async def on_message(message):
             character_states_prompt = f"\n# 現在のキャラクターの状態\n- みらいの気分: {states['mirai_mood']}\n- へー子の気分: {states['heko_mood']}\n- 直近のやり取り: {states['last_interaction_summary']}"
             emotion_context_prompt = f"\n# imazineの現在の感情\nimazineは今「{emotion}」と感じています。この感情に寄り添って対話してください。"
             
+            # ★★★ ここが最重要修正点 ★★★
+            # 思考の出発点となるプロンプトを、ここで、必ず、初期化します。
+            final_prompt_for_llm = ULTIMATE_PROMPT.replace("{{CHARACTER_STATES}}", character_states_prompt).replace("{{EMOTION_CONTEXT}}", emotion_context_prompt)
+
+            
             mirai_words = [d['word'] for d in gals_words if d['mirai'] > 0]
             heko_words = [d['word'] for d in gals_words if d['heko'] > 0]
             mirai_weights = [d['mirai'] for d in gals_words if d['mirai'] > 0]
