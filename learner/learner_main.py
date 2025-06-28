@@ -1,4 +1,4 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.5.6 - The Wise Librarian)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.5.5 - The Final Key)
 import os
 import logging
 from fastapi import FastAPI, Request, HTTPException
@@ -22,10 +22,12 @@ lifespan_context = {}
 
 def get_env_variable(var_name, is_critical=True, default=None):
     value = os.getenv(var_name)
-    if not value and is_critical:
-        logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
-        raise ValueError(f"'{var_name}' is not set.")
-    return value if value else default
+    if not value:
+        if is_critical:
+            logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
+            raise ValueError(f"'{var_name}' is not set.")
+        return default
+    return value
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,6 +40,8 @@ async def lifespan(app: FastAPI):
         lifespan_context["supabase_client"] = create_client(supabase_url, supabase_key)
         genai.configure(api_key=gemini_api_key)
         
+        # ★★★ ここが最重要修正点 ★★★
+        # LangChainのモジュールに、直接、APIキーを渡します。
         lifespan_context["embeddings"] = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=gemini_api_key)
         
         lifespan_context["vectorstore"] = SupabaseVectorStore(
@@ -46,7 +50,7 @@ async def lifespan(app: FastAPI):
             table_name="documents",
             query_name="match_documents",
         )
-        lifespan_context["text_splitter"] = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
+        lifespan_context["text_splitter"] = CharacterTextSplitter(separator="\n\n", chunk_size=500, chunk_overlap=50)
         lifespan_context["genai_model"] = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
 
         logging.info("全ての初期化処理が完了。学習係は正常です。")
