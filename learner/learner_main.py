@@ -1,4 +1,4 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.5.5 - The Final Key)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.5.6 - The Wise Librarian)
 import os
 import logging
 from fastapi import FastAPI, Request, HTTPException
@@ -22,12 +22,10 @@ lifespan_context = {}
 
 def get_env_variable(var_name, is_critical=True, default=None):
     value = os.getenv(var_name)
-    if not value:
-        if is_critical:
-            logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
-            raise ValueError(f"'{var_name}' is not set.")
-        return default
-    return value
+    if not value and is_critical:
+        logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
+        raise ValueError(f"'{var_name}' is not set.")
+    return value if value else default
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -48,7 +46,7 @@ async def lifespan(app: FastAPI):
             table_name="documents",
             query_name="match_documents",
         )
-        lifespan_context["text_splitter"] = CharacterTextSplitter(separator="\n\n", chunk_size=500, chunk_overlap=50)
+        lifespan_context["text_splitter"] = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
         lifespan_context["genai_model"] = genai.GenerativeModel('gemini-1.5-pro-latest')
 
         logging.info("全ての初期化処理が完了。学習係は正常です。")
@@ -79,9 +77,21 @@ class LearningHistory(BaseModel):
 @app.post("/learn")
 async def learn(request: TextContent):
     try:
+        # 本文をチャンクに分割して保存
         texts = lifespan_context["text_splitter"].split_text(request.text_content)
         lifespan_context["vectorstore"].add_texts(texts=texts)
-        logging.info(f"{len(texts)}個のチャンクをベクトル化して保存しました。")
+        logging.info(f"{len(texts)}個のチャンクを学習しました。")
+
+        # ★★★ 新機能：学習内容の「タイトル（要約）」を自動生成して保存 ★★★
+        summary_prompt = f"以下のテキスト全体の、最も重要なテーマや主題を、30文字程度の、非常に簡潔な「タイトル」にしてください。\n\n# テキスト\n{request.text_content[:2000]}"
+        summary_model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        summary_response = await summary_model.generate_content_async(summary_prompt)
+        summary_text = summary_response.text.strip()
+        
+        # タイトルもベクトルDBに追加
+        lifespan_context["vectorstore"].add_texts(texts=[f"学習したファイル「{summary_text}」の要約"])
+        logging.info(f"学習内容のタイトル「{summary_text}」を索引に追加しました。")
+
         return {"message": "Learning successful"}
     except Exception as e:
         logging.error(f"Error in /learn: {e}", exc_info=True)
