@@ -9,3 +9,5 @@ Pillow
 google-cloud-aiplatform
 google-auth
 python-dotenv
+PyMuPDF
+youtube-transcript-api
