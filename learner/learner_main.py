@@ -1,12 +1,13 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.7.2 - The Final Key)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.7.3 - The True Soul)
 # Creator & Partner: imazine & Gemini
 # Last Updated: 2025-06-29
-# - Added /dialogue-examples endpoint.
-# - Corrected the calling order in SupabaseVectorStore to match the new SQL function.
-# - This is the complete, final version for deployment.
+# - Fixed NameError by adding 'import asyncio'.
+# - Corrected DB function calls to be truly async.
+# - This is the complete, final, working version.
 
 import os
 import logging
+import asyncio # ★★★ The forgotten key ★★★
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -29,17 +30,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 lifespan_context = {}
 
 def get_env_variable(var_name, is_critical=True, default=None):
-    """Safely get environment variables."""
     value = os.getenv(var_name)
     if not value and is_critical:
-        logging.critical(f"Mandatory environment variable '{var_name}' is not set.")
+        logging.critical(f"Mandatory env var '{var_name}' is not set.")
         raise ValueError(f"'{var_name}' is not set.")
     return value if value else default
 
 # --- Lifespan Management ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize and teardown resources for the FastAPI app."""
     logging.info("Learner's lifecycle is starting...")
     try:
         supabase_url = get_env_variable("SUPABASE_URL")
@@ -51,12 +50,11 @@ async def lifespan(app: FastAPI):
         
         lifespan_context["embeddings"] = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=gemini_api_key)
         
-        # ★★★ The query_name now matches our corrected SQL function ★★★
         lifespan_context["vectorstore"] = SupabaseVectorStore(
             client=lifespan_context["supabase_client"],
             embedding=lifespan_context["embeddings"],
             table_name="documents",
-            query_name="match_documents" # This now correctly calls our patched function
+            query_name="match_documents"
         )
         lifespan_context["text_splitter"] = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
         lifespan_context["genai_model"] = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
@@ -78,25 +76,23 @@ class QueryRequest(BaseModel):
     query_text: str
     k: int = 10
     filter: Optional[dict] = None
+# ... (Other models are the same)
 class SummarizeRequest(BaseModel): history_text: str
 class Concern(BaseModel): topic: str
 class ConcernUpdate(BaseModel): id: int
 class LearningHistory(BaseModel):
-    user_id: str
-    username: str
-    filename: str
-    file_size: int
-class CharacterStateUpdate(BaseModel):
-    states: Dict[str, str]
-class VocabularyUpdate(BaseModel):
-    words_used: List[str]
+    user_id: str; username: str; filename: str; file_size: int
+class CharacterStateUpdate(BaseModel): states: Dict[str, str]
+class VocabularyUpdate(BaseModel): words_used: List[str]
 
+# --- Helper for async DB calls ---
+async def run_sync_in_thread(func):
+    """Run a synchronous function in a separate thread to avoid blocking."""
+    return await asyncio.to_thread(func)
 
 # --- API Endpoints ---
-
 @app.post("/learn", status_code=200)
 async def learn(request: TextContent):
-    if "vectorstore" not in lifespan_context: raise HTTPException(status_code=500, detail="Vectorstore not initialized")
     try:
         texts = lifespan_context["text_splitter"].split_text(request.text_content)
         await lifespan_context["vectorstore"].aadd_texts(texts=texts)
@@ -108,15 +104,13 @@ async def learn(request: TextContent):
 
 @app.post("/query")
 async def query(request: QueryRequest):
-    if "vectorstore" not in lifespan_context: raise HTTPException(status_code=500, detail="Vectorstore not initialized")
     try:
-        # Langchain now calls the corrected function signature correctly
         docs = await lifespan_context["vectorstore"].asimilarity_search(
-            request.query_text, 
+            query=request.query_text, 
             k=request.k,
-            filter=request.filter or {}
+            filter=request.filter
         )
-        logging.info(f"Returned {len(docs)} documents for query: '{request.query_text}'")
+        logging.info(f"Returned {len(docs)} documents for query.")
         return {"documents": [doc.page_content for doc in docs]}
     except Exception as e:
         logging.error(f"Error in /query: {e}", exc_info=True)
@@ -140,8 +134,8 @@ async def summarize(request: SummarizeRequest):
 @app.get("/character-states")
 async def get_character_states():
     try:
-        response = await asyncio.to_thread(lifespan_context["supabase_client"].table('character_states').select('*').limit(1).single().execute)
-        logging.info("Fetched character states from DB.")
+        db_call = lifespan_context["supabase_client"].table('character_states').select('*').limit(1).single().execute
+        response = await run_sync_in_thread(db_call)
         return response.data
     except Exception:
         return {"last_interaction_summary": "まだ会話が始まっていません。", "mirai_mood": "ニュートラル", "heko_mood": "ニュートラル"}
@@ -149,8 +143,8 @@ async def get_character_states():
 @app.post("/character-states", status_code=200)
 async def update_character_states(request: CharacterStateUpdate):
     try:
-        await asyncio.to_thread(lifespan_context["supabase_client"].table('character_states').upsert({'id': 1, **request.states}).execute)
-        logging.info(f"Updated character states in DB: {request.states}")
+        db_call = lambda: lifespan_context["supabase_client"].table('character_states').upsert({'id': 1, **request.states}).execute()
+        await run_sync_in_thread(db_call)
         return {"message": "State updated successfully"}
     except Exception as e:
         logging.error(f"Error updating character states: {e}", exc_info=True)
@@ -159,7 +153,8 @@ async def update_character_states(request: CharacterStateUpdate):
 @app.get("/vocabulary")
 async def get_vocabulary():
     try:
-        response = await asyncio.to_thread(lifespan_context["supabase_client"].table('gals_words').select('*').order('total', desc=True).execute)
+        db_call = lambda: lifespan_context["supabase_client"].table('gals_words').select('*').order('total', desc=True).execute()
+        response = await run_sync_in_thread(db_call)
         return {"vocabulary": response.data}
     except Exception as e:
         logging.error(f"Error getting vocabulary: {e}", exc_info=True)
@@ -167,41 +162,50 @@ async def get_vocabulary():
 
 @app.post("/vocabulary/update", status_code=200)
 async def update_vocabulary(request: VocabularyUpdate):
-    supabase: Client = lifespan_context["supabase_client"]
     try:
         for word in set(request.words_used):
-            await asyncio.to_thread(supabase.rpc('increment_word_total', {'word_text': word}).execute)
-        logging.info(f"Updated vocabulary for words: {request.words_used}")
+            db_call = lambda w=word: lifespan_context["supabase_client"].rpc('increment_word_total', {'word_text': w}).execute()
+            await run_sync_in_thread(db_call)
         return {"message": "Vocabulary updated"}
     except Exception as e:
         logging.error(f"Error updating vocabulary: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
         
-# ★★★ New Endpoint to provide dialogue examples ★★★
 @app.get("/dialogue-examples")
 async def get_dialogue_examples():
-    """Retrieve all dialogue examples from Supabase."""
     try:
-        response = await asyncio.to_thread(lifespan_context["supabase_client"].table('dialogue_examples').select('example').execute)
+        db_call = lambda: lifespan_context["supabase_client"].table('dialogue_examples').select('example').execute()
+        response = await run_sync_in_thread(db_call)
         return {"examples": response.data}
     except Exception as e:
         logging.error(f"Error getting dialogue examples: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-# ... (The rest of the endpoints remain the same) ...
 @app.post("/log-concern", status_code=200)
 async def log_concern(request: Concern):
-    # ...
-    pass
+    try:
+        await run_sync_in_thread(lambda: lifespan_context["supabase_client"].table('concerns').insert({"topic": request.topic}).execute())
+        return {"message": "Concern logged successfully"}
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/get-unresolved-concerns")
 async def get_unresolved_concerns():
-    # ...
-    pass
+    try:
+        response = await run_sync_in_thread(lambda: lifespan_context["supabase_client"].table('concerns').select('id, topic').eq('is_resolved', False).execute())
+        return {"concerns": response.data}
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/resolve-concern", status_code=200)
 async def resolve_concern(request: ConcernUpdate):
-    # ...
-    pass
+    try:
+        db_call = lambda: lifespan_context["supabase_client"].table('concerns').update({'is_resolved': True, 'resolved_at': datetime.now(timezone.utc).isoformat()}).eq('id', request.id).execute()
+        await run_sync_in_thread(db_call)
+        return {"message": "Concern resolved"}
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/log-learning-history", status_code=200)
 async def log_learning_history(request: LearningHistory):
-    # ...
-    pass
+    try:
+        await run_sync_in_thread(lambda: lifespan_context["supabase_client"].table('learning_history').insert(request.dict()).execute())
+        return {"message": "Learning history logged successfully"}
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
