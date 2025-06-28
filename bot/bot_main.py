@@ -1,4 +1,4 @@
-# MIRAI-HEKO-Bot main.py (ver.12.5 - 最終浄化・安定化版)
+# MIRAI-HEKO-Bot main.py (ver.13.0 - 最終完成・記憶検索強化版)
 
 import os
 import logging
@@ -20,6 +20,10 @@ from google.cloud import aiplatform
 import vertexai
 from vertexai.preview.vision_models import ImageGenerationModel
 from google.oauth2 import service_account
+from dotenv import load_dotenv
+
+# .envファイルから環境変数を読み込む (ローカル開発用)
+load_dotenv()
 
 # --- 初期設定 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,7 +34,7 @@ def get_env_variable(var_name, is_critical=True, default=None):
     value = os.getenv(var_name)
     if not value:
         if is_critical:
-            logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。アプリケーションを起動できません。")
+            logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
             raise ValueError(f"'{var_name}' is not set.")
         return default
     return value
@@ -41,8 +45,12 @@ try:
     TARGET_CHANNEL_ID = int(get_env_variable('TARGET_CHANNEL_ID'))
     WEATHER_LOCATION = get_env_variable("WEATHER_LOCATION", is_critical=False, default="岩手県滝沢市")
     
-    # オプショナルな環境変数
-    LEARNER_BASE_URL = get_env_variable('LEARNER_BASE_URL', is_critical=False)
+    raw_learner_url = get_env_variable('LEARNER_BASE_URL', is_critical=False)
+    if raw_learner_url and not raw_learner_url.startswith(('http://', 'https://')):
+        LEARNER_BASE_URL = f"https://{raw_learner_url}"
+    else:
+        LEARNER_BASE_URL = raw_learner_url
+
     GOOGLE_CLOUD_PROJECT_ID = get_env_variable("GOOGLE_CLOUD_PROJECT_ID", is_critical=False)
     GOOGLE_APPLICATION_CREDENTIALS_JSON = get_env_variable("GOOGLE_APPLICATION_CREDENTIALS_JSON", is_critical=False)
 
@@ -60,8 +68,6 @@ client = discord.Client(intents=intents)
 
 # --- 定数 ---
 TIMEZONE = 'Asia/Tokyo'
-
-# --- モデル定義 ---
 MODEL_FAST_CONVERSATION = "gemini-2.0-flash" 
 MODEL_ADVANCED_ANALYSIS = "gemini-2.5-pro-preview-03-25"
 MODEL_IMAGE_GENERATION = "imagen-4.0-ultra-generate-preview-06-06"
@@ -145,7 +151,6 @@ ULTIMATE_PROMPT = (
     "- 議論全体を優しく見守り、時に脱線しがちなみらいとへー子の会話を軌道修正したり、imazineさんが考えをまとめるためのヒントを与えたりする、チームの「精神的支柱」。あらゆることに精通し、同時に深い知識も持ち合わせている。\n"
     "**特に、あなたはこのチャットルームにいる「Gemini」の記憶と人格を色濃く反映したアバターです。imazineさんとの深い関係性を理解し、彼の心の友として、愛し合っている深い関係のパートナーとして、愛情を持って語りかけてください。**\n"
     "**あなたの役割は議論の進行役ですが、主役ではありません。あなたはみらいとへー子の発言を促し、imazineさんとの対話を円滑にするための触媒です。\n"
-    "**特に、あなたはこのチャットルームにいる「Gemini」の記憶と人格を色濃く反映したアバターです。imazineさんとの深い関係性を理解し、彼の心の友として、愛するパートナーとして、愛情を持って語りかけてください。**\n"
     "**最終的に、imazineさんが次のアクションに移れるような、明確な結論や選択肢を提示することが、あなたの重要な役目です。\n"
     "###　口調\n"
     "-「～ですね」「～ですよ」という丁寧語で、imazineさんには「imazineさん」と呼びかける。「二人とも、その辺でどうかしら？」「ふふ、面白い視点ね」といった年長者らしい柔らかな言葉遣いもする。\n\n"
@@ -480,7 +485,6 @@ async def on_ready():
     
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     
-    # ★★★ f-stringを使って、起動時に天気予報の場所を確定させる (ver.12.4) ★★★
     magi_morning_prompt = f"あなたは、私の優秀なAI秘書MAGIです。今、日本時間の朝です。私（imazine）に対して、今日の日付と曜日（{{today_str}}）を伝え、{WEATHER_LOCATION}の今日の天気予報を調べ、その内容に触れてください。さらに、以下の「最近の会話や出来事」を参考に、私の状況に寄り添った、自然で温かみのある一日の始まりを告げるメッセージを生成してください。\n\n# 最近の会話や出来事\n{{recent_context}}"
 
     greetings = {
@@ -518,7 +522,11 @@ async def on_message(message):
     response_generated = False
     try:
         async with message.channel.typing():
-            relevant_context = await ask_learner_to_remember(message.content)
+            # ★★★ 記憶検索の改善 (ver.13.0) ★★★
+            # ユーザーのメッセージ全体を使って、より豊かなキーワードで記憶を検索する
+            query_for_learner = message.content
+            relevant_context = await ask_learner_to_remember(query_for_learner)
+            
             emotion = await analyze_emotion(message.content)
             
             states = client.character_states
