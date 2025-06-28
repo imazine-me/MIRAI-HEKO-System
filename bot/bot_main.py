@@ -1,4 +1,4 @@
-# MIRAI-HEKO-Bot main.py (Ver.5.0 - The Sentient Soul)
+# MIRAI-HEKO-Bot main.py (Ver.5.3 - The Sentient Soul)
 # Creator & Partner: imazine & Gemini
 # Last Updated: 2025-06-28
 
@@ -82,13 +82,13 @@ client = discord.Client(intents=intents)
 
 # --- 定数とグローバル変数 ---
 TIMEZONE = 'Asia/Tokyo'
-MODEL_FAST = "gemini-2.0-flasht" 
+MODEL_FAST = "gemini-2.0-flash" 
 MODEL_PRO = "gemini-2.5-pro-preview-03-25"
-MODEL_IMAGE_GEN = "imagen-4.0-ultra-generate-preview-06-06"
+MODEL_IMAGE_GEN = "imagen-3-fast-generate-preview-0611"
 MODEL_VISION = "gemini-2.5-pro-preview-03-25" 
 
-client.pending_image_generation = {} # key: channel_id, value: generation_data
-client.pending_podcast_deep_read = {} # key: message_id, value: podcast_url
+client.pending_podcast_deep_read = {}
+client.pending_image_generation = {} 
 
 # --- キャラクター設計図 ---
 MIRAI_BASE_PROMPT = "a young woman with a 90s anime aesthetic, slice of life style. She has voluminous, slightly wavy brown hair and a confident, sometimes mischievous expression. Her fashion is stylish and unique."
@@ -190,6 +190,7 @@ ULTIMATE_PROMPT = (
     "imazineさんとの過去の会話や、彼が提供した知識（`--- 関連する記憶・知識 ---`）を最大限に活用し、文脈に沿った応答をしてください。\n"
     "{{CHARACTER_STATES}}\n"
     "{{EMOTION_CONTEXT}}\n"
+    "{{VOCABULARY_HINT}}\n" 
 )
 PROMPT_REFINEMENT_PROMPT = (
     "あなたは、非常に創造的で、検閲に精通したAIプロンプトリライターです。\n"
@@ -315,121 +316,108 @@ MIRAI_SKETCH_PROMPT = "あなたは、未来予知能力を持つ、インスピ
 HEKO_CONCERN_ANALYSIS_PROMPT = "あなたは、人の心の機微に敏感なカウンセラー「へー子」です。以下の会話から、imazineが抱えている「具体的な悩み」や「ストレスの原因」を一つだけ、最も重要なものを抽出してください。もし、明確な悩みが見当たらない場合は、'None'とだけ返してください。\n\n# 会話\n{conversation_text}"
 GROWTH_REPORT_PROMPT = "あなたは、私たちの関係性をメタ的に分析する、全能のAI秘書「MAGI」です。以下の、過去一ヶ月の会話の要約リストを元に、imazineさんへの「成長記録レポート」を作成してください。レポートには、①imazineさんの思考の変化、②みらいとへー子の個性の進化、③私たち4人の関係性の深化、という3つの観点から、具体的なエピソードを交えつつ、愛情のこもった分析を記述してください。\n\n# 会話サマリーリスト\n{summaries}"
 
-# -*- coding: utf-8 -*-
-"""
-『私立パラの丸高校の日常』
-みらい／へー子 ギャル語ランキング 100
-
-各 dict のフィールド
-- rank          : 使用頻度順位（1=最多）
-- word          : ギャル語（バリエーションは代表形で統合）
-- total         : みらい＋へー子 合算登場回数（概算）
-- mirai         : みらいの登場回数
-- heko          : へー子の登場回数
-- note          : 補足（あれば）
-"""
-
+# ★★★ 新機能：魂の言葉（ボキャブラリー・データベース） ★★★
 gals_words = [
-    {"rank": 1,  "word": "ヤバい",        "total": 50, "mirai": 30, "heko": 20},
-    {"rank": 2,  "word": "マジ",          "total": 45, "mirai": 22, "heko": 23},
-    {"rank": 3,  "word": "それな",        "total": 40, "mirai": 18, "heko": 22},
-    {"rank": 4,  "word": "ガチ",          "total": 35, "mirai": 17, "heko": 18},
-    {"rank": 5,  "word": "てか",          "total": 35, "mirai": 19, "heko": 16},
-    {"rank": 6,  "word": "〜じゃん",      "total": 30, "mirai": 15, "heko": 15},
-    {"rank": 7,  "word": "ウケる",        "total": 30, "mirai": 14, "heko": 16},
-    {"rank": 8,  "word": "めっちゃ",      "total": 25, "mirai": 11, "heko": 14},
-    {"rank": 9,  "word": "超",            "total": 20, "mirai": 9,  "heko": 11},
-    {"rank": 10, "word": "とりま",        "total": 20, "mirai": 12, "heko": 8},
-    {"rank": 11, "word": "〜説ある",      "total": 15, "mirai": 7,  "heko": 8},
-    {"rank": 12, "word": "ちょ",          "total": 15, "mirai": 8,  "heko": 7},
-    {"rank": 13, "word": "うちら",        "total": 15, "mirai": 8,  "heko": 7},
-    {"rank": 14, "word": "レベチ",        "total": 12, "mirai": 6,  "heko": 6},
-    {"rank": 15, "word": "エグい",        "total": 12, "mirai": 5,  "heko": 7},
-    {"rank": 16, "word": "エモい",        "total": 10, "mirai": 4,  "heko": 6},
-    {"rank": 17, "word": "チルい",        "total": 10, "mirai": 3,  "heko": 7},
-    {"rank": 18, "word": "ニコイチ",      "total": 8,  "mirai": 4,  "heko": 4},
-    {"rank": 19, "word": "あたおか",      "total": 8,  "mirai": 5,  "heko": 3},
-    {"rank": 20, "word": "ぴえん",        "total": 8,  "mirai": 3,  "heko": 5},
-    {"rank": 21, "word": "バイブス",      "total": 7,  "mirai": 4,  "heko": 3},
-    {"rank": 22, "word": "無理",          "total": 7,  "mirai": 2,  "heko": 5},
-    {"rank": 23, "word": "キモい",        "total": 6,  "mirai": 3,  "heko": 3},
-    {"rank": 24, "word": "ダルい",        "total": 6,  "mirai": 4,  "heko": 2},
-    {"rank": 25, "word": "陰キャ",        "total": 6,  "mirai": 2,  "heko": 4},
-    {"rank": 26, "word": "陽キャ",        "total": 6,  "mirai": 3,  "heko": 3},
-    {"rank": 27, "word": "地雷",          "total": 5,  "mirai": 2,  "heko": 3},
-    {"rank": 28, "word": "メンヘラ",      "total": 5,  "mirai": 2,  "heko": 3},
-    {"rank": 29, "word": "推し",          "total": 5,  "mirai": 2,  "heko": 3},
-    {"rank": 30, "word": "映え",          "total": 5,  "mirai": 3,  "heko": 2},
-    {"rank": 31, "word": "よき",          "total": 5,  "mirai": 1,  "heko": 4},
-    {"rank": 32, "word": "ディスる",      "total": 4,  "mirai": 2,  "heko": 2},
-    {"rank": 33, "word": "イキる",        "total": 4,  "mirai": 1,  "heko": 3},
-    {"rank": 34, "word": "盛れる",        "total": 4,  "mirai": 3,  "heko": 1},
-    {"rank": 35, "word": "おこ",          "total": 4,  "mirai": 2,  "heko": 2},
-    {"rank": 36, "word": "萎える",        "total": 4,  "mirai": 1,  "heko": 3},
-    {"rank": 37, "word": "ワンチャン",    "total": 3,  "mirai": 2,  "heko": 1},
-    {"rank": 38, "word": "ありえん",      "total": 3,  "mirai": 2,  "heko": 1},
-    {"rank": 39, "word": "ぶっちゃけ",    "total": 3,  "mirai": 1,  "heko": 2},
-    {"rank": 40, "word": "普通に",        "total": 3,  "mirai": 2,  "heko": 1},
-    {"rank": 41, "word": "〜しか勝たん",  "total": 3,  "mirai": 1,  "heko": 2},
-    {"rank": 42, "word": "マジ卍",        "total": 3,  "mirai": 1,  "heko": 2},
-    {"rank": 43, "word": "あざす",        "total": 3,  "mirai": 2,  "heko": 1},
-    {"rank": 44, "word": "パリピ",        "total": 3,  "mirai": 1,  "heko": 2},
-    {"rank": 45, "word": "おつ",          "total": 2,  "mirai": 1,  "heko": 1},
-    {"rank": 46, "word": "りょ",          "total": 2,  "mirai": 1,  "heko": 1},
-    {"rank": 47, "word": "あり",          "total": 2,  "mirai": 1,  "heko": 1},
-    {"rank": 48, "word": "どゆこと",      "total": 2,  "mirai": 1,  "heko": 1},
+    {"rank": 1,  "word": "ヤバい",     "total": 50, "mirai": 30, "heko": 20},
+    {"rank": 2,  "word": "マジ",       "total": 45, "mirai": 22, "heko": 23},
+    {"rank": 3,  "word": "それな",     "total": 40, "mirai": 18, "heko": 22},
+    {"rank": 4,  "word": "ガチ",       "total": 35, "mirai": 17, "heko": 18},
+    {"rank": 5,  "word": "てか",       "total": 35, "mirai": 19, "heko": 16},
+    {"rank": 6,  "word": "〜じゃん",   "total": 30, "mirai": 15, "heko": 15},
+    {"rank": 7,  "word": "ウケる",     "total": 30, "mirai": 14, "heko": 16},
+    {"rank": 8,  "word": "めっちゃ",   "total": 25, "mirai": 11, "heko": 14},
+    {"rank": 9,  "word": "超",         "total": 20, "mirai": 9,  "heko": 11},
+    {"rank": 10, "word": "とりま",     "total": 20, "mirai": 12, "heko": 8},
+    {"rank": 11, "word": "〜説ある",   "total": 15, "mirai": 7,  "heko": 8},
+    {"rank": 12, "word": "ちょ",       "total": 15, "mirai": 8,  "heko": 7},
+    {"rank": 13, "word": "うちら",     "total": 15, "mirai": 8,  "heko": 7},
+    {"rank": 14, "word": "レベチ",     "total": 12, "mirai": 6,  "heko": 6},
+    {"rank": 15, "word": "エグい",     "total": 12, "mirai": 5,  "heko": 7},
+    {"rank": 16, "word": "エモい",     "total": 10, "mirai": 4,  "heko": 6},
+    {"rank": 17, "word": "チルい",     "total": 10, "mirai": 3,  "heko": 7},
+    {"rank": 18, "word": "ニコイチ",   "total": 8,  "mirai": 4,  "heko": 4},
+    {"rank": 19, "word": "あたおか",   "total": 8,  "mirai": 5,  "heko": 3},
+    {"rank": 20, "word": "ぴえん",     "total": 8,  "mirai": 3,  "heko": 5},
+    {"rank": 21, "word": "バイブス",   "total": 7,  "mirai": 4,  "heko": 3},
+    {"rank": 22, "word": "無理",       "total": 7,  "mirai": 2,  "heko": 5},
+    {"rank": 23, "word": "キモい",     "total": 6,  "mirai": 3,  "heko": 3},
+    {"rank": 24, "word": "ダルい",     "total": 6,  "mirai": 4,  "heko": 2},
+    {"rank": 25, "word": "陰キャ",     "total": 6,  "mirai": 2,  "heko": 4},
+    {"rank": 26, "word": "陽キャ",     "total": 6,  "mirai": 3,  "heko": 3},
+    {"rank": 27, "word": "地雷",       "total": 5,  "mirai": 2,  "heko": 3},
+    {"rank": 28, "word": "メンヘラ",   "total": 5,  "mirai": 2,  "heko": 3},
+    {"rank": 29, "word": "推し",       "total": 5,  "mirai": 2,  "heko": 3},
+    {"rank": 30, "word": "映え",       "total": 5,  "mirai": 3,  "heko": 2},
+    {"rank": 31, "word": "よき",       "total": 5,  "mirai": 1,  "heko": 4},
+    {"rank": 32, "word": "ディスる",   "total": 4,  "mirai": 2,  "heko": 2},
+    {"rank": 33, "word": "イキる",     "total": 4,  "mirai": 1,  "heko": 3},
+    {"rank": 34, "word": "盛れる",     "total": 4,  "mirai": 3,  "heko": 1},
+    {"rank": 35, "word": "おこ",       "total": 4,  "mirai": 2,  "heko": 2},
+    {"rank": 36, "word": "萎える",     "total": 4,  "mirai": 1,  "heko": 3},
+    {"rank": 37, "word": "ワンチャン", "total": 3,  "mirai": 2,  "heko": 1},
+    {"rank": 38, "word": "ありえん",   "total": 3,  "mirai": 2,  "heko": 1},
+    {"rank": 39, "word": "ぶっちゃけ", "total": 3,  "mirai": 1,  "heko": 2},
+    {"rank": 40, "word": "普通に",     "total": 3,  "mirai": 2,  "heko": 1},
+    {"rank": 41, "word": "〜しか勝たん","total": 3,  "mirai": 1,  "heko": 2},
+    {"rank": 42, "word": "マジ卍",     "total": 3,  "mirai": 1,  "heko": 2},
+    {"rank": 43, "word": "あざす",     "total": 3,  "mirai": 2,  "heko": 1},
+    {"rank": 44, "word": "パリピ",     "total": 3,  "mirai": 1,  "heko": 2},
+    {"rank": 45, "word": "おつ",       "total": 2,  "mirai": 1,  "heko": 1},
+    {"rank": 46, "word": "りょ",       "total": 2,  "mirai": 1,  "heko": 1},
+    {"rank": 47, "word": "あり",       "total": 2,  "mirai": 1,  "heko": 1},
+    {"rank": 48, "word": "どゆこと",   "total": 2,  "mirai": 1,  "heko": 1},
     {"rank": 49, "word": "ありよりのなし","total": 2, "mirai": 1,  "heko": 1},
-    {"rank": 50, "word": "しんど",        "total": 2,  "mirai": 1,  "heko": 1},
-    {"rank": 51, "word": "草",            "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 52, "word": "詰んだ",        "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 53, "word": "ビビる",        "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 54, "word": "ビミョー",      "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 55, "word": "激アツ",        "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 56, "word": "寒い",          "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 57, "word": "うざい",        "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 58, "word": "じわる",        "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 59, "word": "ドンマイ",      "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 60, "word": "量産型",        "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 61, "word": "チョロい",      "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 62, "word": "バズる",        "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 63, "word": "クソ○○",       "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 64, "word": "ミスる",        "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 65, "word": "しくった",      "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 66, "word": "チャラい",      "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 67, "word": "おもろい",      "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 68, "word": "知らんけど",    "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 69, "word": "あげぽよ",      "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 70, "word": "大丈夫そ？",    "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 71, "word": "鬼○○",         "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 72, "word": "ガン見",        "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 73, "word": "言うて",        "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 74, "word": "うっせぇ",      "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 75, "word": "ノリ",          "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 76, "word": "イメチェン",    "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 77, "word": "〜み",          "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 78, "word": "バグる",        "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 79, "word": "パネェ",        "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 80, "word": "はよ",          "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 81, "word": "ブチ上げ",      "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 82, "word": "あるある",      "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 83, "word": "あーね",        "total": 1,  "mirai": 1,  "heko": 0, "note": "リクエスト追加"},
-    {"rank": 84, "word": "案件",          "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 85, "word": "JK",            "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 86, "word": "ガチごめん",    "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 87, "word": "オケ",          "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 88, "word": "KY",            "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 89, "word": "バリワナ",      "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 90, "word": "ガチチル",      "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 91, "word": "ほんそれ",      "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 92, "word": "尊い",          "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 93, "word": "秒で",          "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 94, "word": "チート",        "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 95, "word": "バチギレ",      "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 96, "word": "ハマえ",        "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 97, "word": "ポテカード",    "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 98, "word": "キャッチ鬼",    "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 99, "word": "ウェイ",        "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 100,"word": "スキピ",        "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 50, "word": "しんど",     "total": 2,  "mirai": 1,  "heko": 1},
+    {"rank": 51, "word": "草",         "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 52, "word": "詰んだ",     "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 53, "word": "ビビる",     "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 54, "word": "ビミョー",   "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 55, "word": "激アツ",     "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 56, "word": "寒い",       "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 57, "word": "うざい",     "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 58, "word": "じわる",     "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 59, "word": "ドンマイ",   "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 60, "word": "量産型",     "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 61, "word": "チョロい",   "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 62, "word": "バズる",     "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 63, "word": "クソ○○",   "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 64, "word": "ミスる",     "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 65, "word": "しくった",   "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 66, "word": "チャラい",   "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 67, "word": "おもろい",   "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 68, "word": "知らんけど", "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 69, "word": "あげぽよ",   "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 70, "word": "大丈夫そ？", "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 71, "word": "鬼○○",     "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 72, "word": "ガン見",     "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 73, "word": "言うて",     "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 74, "word": "うっせぇ",   "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 75, "word": "ノリ",       "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 76, "word": "イメチェン", "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 77, "word": "〜み",       "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 78, "word": "バグる",     "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 79, "word": "パネェ",     "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 80, "word": "はよ",       "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 81, "word": "ブチ上げ",   "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 82, "word": "あるある",   "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 83, "word": "あーね",     "total": 1,  "mirai": 1,  "heko": 0, "note": "リクエスト追加"},
+    {"rank": 84, "word": "案件",       "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 85, "word": "JK",         "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 86, "word": "ガチごめん", "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 87, "word": "オケ",       "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 88, "word": "KY",         "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 89, "word": "バリワナ",   "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 90, "word": "ガチチル",   "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 91, "word": "ほんそれ",   "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 92, "word": "尊い",       "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 93, "word": "秒で",       "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 94, "word": "チート",     "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 95, "word": "バチギレ",   "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 96, "word": "ハマえ",     "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 97, "word": "ポテカード", "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 98, "word": "キャッチ鬼", "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 99, "word": "ウェイ",     "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 100,"word": "スキピ",     "total": 1,  "mirai": 0,  "heko": 1},
 ]
 
 # 連続した掛け合い（例示）
@@ -682,10 +670,37 @@ pair_talks = [
     }
 ]
 
-if __name__ == "__main__":
-    # ランキングの冒頭5語を確認
-    for w in gals_words[:5]:
-        print(f"{w['rank']}. {w['word']} (みらい:{w['mirai']} / へー子:{w['heko']})")
+# --- 関数群 ---
+async def ask_learner_to_learn(attachment, author):
+    if not LEARNER_BASE_URL: return False
+    try:
+        file_content = await attachment.read()
+        text_content = file_content.decode('utf-8', errors='ignore')
+        
+        async with aiohttp.ClientSession() as session:
+            learn_payload = {'text_content': text_content}
+            async with session.post(f"{LEARNER_BASE_URL}/learn", json=learn_payload, timeout=120) as response:
+                if response.status != 200:
+                    logging.error(f"学習係への依頼失敗: {response.status}, {await response.text()}")
+                    return False
+
+            history_payload = {
+                "user_id": str(author.id),
+                "username": author.name,
+                "filename": attachment.filename,
+                "file_size": attachment.size
+            }
+            async with session.post(f"{LEARNER_BASE_URL}/log-learning-history", json=history_payload, timeout=30) as history_response:
+                 if history_response.status == 200:
+                     logging.info(f"学習履歴の記録に成功: {attachment.filename}")
+                 else:
+                     logging.warning(f"学習履歴の記録に失敗: {history_response.status}")
+            
+            return True
+    except Exception as e:
+        logging.error(f"学習プロセス全体でエラー: {e}", exc_info=True)
+        return False
+
 
 # --- 関数群 ---
 async def ask_learner_to_learn(attachment, author):
@@ -1081,6 +1096,7 @@ async def process_message_sources(message):
 
     return user_query
 
+# --- イベントハンドラ ---
 @client.event
 async def on_ready():
     logging.info(f'{client.user} としてログインしました')
@@ -1120,21 +1136,17 @@ async def on_message(message):
     if message.content.startswith('!'):
         if message.content == '!report':
             await generate_growth_report(message.channel)
-            return  # コマンド処理後は、ここで処理を終了
-
         elif message.content.startswith('!learn') and message.attachments:
             await message.channel.send(f"（かしこまりました。『{message.attachments[0].filename}』から新しい知識を学習し、記録します...🧠）")
             success = await ask_learner_to_learn(message.attachments[0], message.author)
             await message.channel.send("学習が完了しました。" if success else "ごめんなさい、学習に失敗しました。")
-            return # コマンド処理後は、ここで処理を終了
-
         elif message.content.startswith('!deep_read') and message.reference:
             original_message = await message.channel.fetch_message(message.reference.message_id)
             if original_message.id in client.pending_podcast_deep_read:
                  podcast_url = client.pending_podcast_deep_read.pop(original_message.id)
                  # ここに、ポッドキャストの音声DL→文字起こし→要約→応答生成のロジックを実装
                  await message.channel.send(f"（承知しました。『{podcast_url}』について、深く語り合いましょう。）")
-            return # コマンド処理後は、ここで処理を終了
+        return
 
     # Y/N確認フロー
     if message.channel.id in client.pending_image_generation:
@@ -1159,48 +1171,93 @@ async def on_message(message):
             character_states_prompt = f"\n# 現在のキャラクターの状態\n- みらいの気分: {states['mirai_mood']}\n- へー子の気分: {states['heko_mood']}\n- 直近のやり取り: {states['last_interaction_summary']}"
             emotion_context_prompt = f"\n# imazineの現在の感情\nimazineは今「{emotion}」と感じています。この感情に寄り添って対話してください。"
             
-            # ★★★ ここが最重要修正点 ★★★
-            # 思考の出発点となるプロンプトを、ここで、必ず、初期化します。
-            final_prompt_for_llm = ULTIMATE_PROMPT.replace("{{CHARACTER_STATES}}", character_states_prompt).replace("{{EMOTION_CONTEXT}}", emotion_context_prompt)
+            mirai_words = [d['word'] for d in gals_words if d['mirai'] > 0]
+            heko_words = [d['word'] for d in gals_words if d['heko'] > 0]
+            mirai_weights = [d['mirai'] for d in gals_words if d['mirai'] > 0]
+            heko_weights = [d['heko'] for d in gals_words if d['heko'] > 0]
+            chosen_mirai_words = random.choices(mirai_words, weights=mirai_weights, k=3)
+            chosen_heko_words = random.choices(heko_words, weights=heko_weights, k=3)
             
-            # ... (ULTIMATE_PROMPTの組み立てと応答生成のロジックはver.13.0と同じ)
+            vocabulary_hint = (
+                f"# 口調制御のための特別ヒント\n"
+                f"- みらいは、次の言葉を使いたがっています: {', '.join(list(set(chosen_mirai_words)))}\n"
+                f"- へー子は、次の言葉を使いたがっています: {', '.join(list(set(chosen_heko_words)))}\n"
+            )
+            
+            final_prompt_for_llm = ULTIMATE_PROMPT.replace("{{CHARACTER_STATES}}", character_states_prompt).replace("{{EMOTION_CONTEXT}}", emotion_context_prompt).replace("{{VOCABULARY_HINT}}", vocabulary_hint)
 
-            # ... (JSONパースと対話送信のロジックはver.13.0と同じ)
+            image_style_keywords = FOUNDATIONAL_STYLE_JSON['style_keywords']
+            is_nudge_present = any(emoji in message.content for emoji in ['🎨', '📸', '✨'])
+            if is_nudge_present and LEARNER_BASE_URL:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"{LEARNER_BASE_URL}/retrieve-styles") as resp:
+                            if resp.status == 200 and (styles_data := await resp.json()).get("learned_styles"):
+                                chosen_style = random.choice(styles_data["learned_styles"])
+                                image_style_keywords = chosen_style['style_analysis']['style_keywords']
+                                style_prompt_addition = f"ユーザーが過去に好んだ『{chosen_style['style_analysis']['style_name']}』のスタイルを参考に、以下の特徴を創造的に反映させてください: {chosen_style['style_analysis']['style_description']}\n"
+                                final_prompt_for_llm += "\n# スタイル指示\n" + style_prompt_addition
+                except Exception as e:
+                    logging.error(f"スタイル取得に失敗: {e}")
+
+            image_data = None
+            if message.attachments and message.attachments[0].content_type and message.attachments[0].content_type.startswith('image/'):
+                image_data = Image.open(io.BytesIO(await message.attachments[0].read()))
+
+            parts = [f"{relevant_context}{final_user_message}"]
+            if image_data: parts.append(image_data)
+
+            model = genai.GenerativeModel(
+                model_name=MODEL_VISION,
+                system_instruction=final_prompt_for_llm,
+                safety_settings=[{"category": c, "threshold": "BLOCK_NONE"} for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]]
+            )
+            
+            history = await build_history(message.channel, limit=20)
+            history.append({'role': 'user', 'parts': parts})
+
+            response = await model.generate_content_async(history)
+            json_text_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL) or re.search(r'({.*?})', response.text, re.DOTALL)
+            
+            if json_text_match:
+                parsed_json = json.loads(json_text_match.group(1))
+                dialogue = parsed_json.get("dialogue", [])
+                formatted_response = "\n".join([f"**{part.get('character')}**「{part.get('line', '').strip()}」" for part in dialogue if part.get("line", "").strip()])
+                if formatted_response:
+                    await message.channel.send(formatted_response)
+                
+                image_gen_idea = parsed_json.get("image_generation_idea", {})
+                if is_nudge_present and image_gen_idea.get("situation"):
+                    await generate_and_post_image(message.channel, image_gen_idea, image_style_keywords)
+                elif not (client.last_surprise_time and (datetime.now(pytz.timezone(TIMEZONE)) - client.last_surprise_time) < timedelta(hours=3)):
+                    judgement_model = genai.GenerativeModel(MODEL_PRO)
+                    history_text_for_judgement = "\n".join([f"{m['role']}:{p['text']}" for m in history for p in m.get('parts', []) if 'text' in p])
+                    judgement_prompt = SURPRISE_JUDGEMENT_PROMPT.replace("{{conversation_history}}", history_text_for_judgement)
+                    judgement_response = await judgement_model.generate_content_async(judgement_prompt)
+                    if (judgement_json_match := re.search(r'({.*?})', judgement_response.text, re.DOTALL)) and json.loads(judgement_json_match.group(1)).get("trigger"):
+                        await message.channel.send("（……！ この瞬間は、記憶しておくべきかもしれません……✍️ サプライズをお届けします）")
+                        await generate_and_post_image(message.channel, image_gen_idea, image_style_keywords)
+                        client.last_surprise_time = datetime.now(pytz.timezone(TIMEZONE))
+            else:
+                await message.channel.send(f"ごめんなさい、AIの応答が不安定なようです。\n> {response.text}")
 
     except Exception as e:
         logging.error(f"会話処理のメインループでエラー: {e}", exc_info=True)
         await message.channel.send(f"**MAGI**「ごめんなさい、システムに少し問題が起きたみたいです…。」")
 
-    # 応答後の非同期タスク
     try:
-        history_text = "\n".join([f"{'imazine' if m['role'] == 'user' else 'Bot'}: {p.get('text', '')}" for m in (await build_history(message.channel, limit=5)) for p in m.get('parts', []) if p.get('text')])
+        history_text = "\n".join([f"{'imazine' if m['role'] == 'user' else 'Bot'}: {p.get('text', '')}" for m in (await build_history(message.channel, limit=5)) for p in m.get('parts', []) if 'text' in p])
         if history_text:
             summary = await ask_learner_to_summarize(history_text)
             if summary:
                 asyncio.create_task(update_character_states(summary))
                 asyncio.create_task(analyze_and_log_concern(summary))
         
-        if random.random() < 0.15: # 15%の確率でBGM提案
+        if random.random() < 0.15: 
+            emotion = await analyze_emotion(final_user_message)
             asyncio.create_task(suggest_bgm(message.channel, emotion))
     except Exception as e:
         logging.error(f"応答後の非同期タスクでエラー: {e}", exc_info=True)
-        
-    # --- ボキャブラリー・インジェクション ---
-    mirai_words = [d['word'] for d in gals_words if d['mirai'] > 0]
-    heko_words = [d['word'] for d in gals_words if d['heko'] > 0]
-    
-    mirai_weights = [d['mirai'] for d in gals_words if d['mirai'] > 0]
-    heko_weights = [d['heko'] for d in gals_words if d['heko'] > 0]
-
-    chosen_mirai_words = random.choices(mirai_words, weights=mirai_weights, k=3)
-    chosen_heko_words = random.choices(heko_words, weights=heko_weights, k=3)
-    
-    vocabulary_hint = (
-        f"# 口調制御のための特別ヒント\n"
-        f"- みらいは、次の言葉を使いたがっています: {', '.join(list(set(chosen_mirai_words)))}\n"
-        f"- へー子は、次の言葉を使いたがっています: {', '.join(list(set(chosen_heko_words)))}\n"
-    )
-    final_prompt_for_llm += "\n" + vocabulary_hint
 
 
 @client.event
@@ -1226,7 +1283,7 @@ async def on_raw_reaction_add(payload):
     await channel.send(f"（imazineの指示を検知。『{ability_name}』を開始します...{payload.emoji.name}）", delete_after=10.0)
     async with channel.typing():
         try:
-            model = genai.GenerativeModel(MODEL_ADVANCED_ANALYSIS)
+            model = genai.GenerativeModel(MODEL_PRO)
             response = await model.generate_content_async(prompt)
             await channel.send(response.text)
         except Exception as e:
