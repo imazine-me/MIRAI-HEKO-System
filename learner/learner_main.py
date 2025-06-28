@@ -1,8 +1,7 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.5.1 - with Chronicle)
-
+# MIRAI-HEKO-Learner/learner_main.py (Ver.5.3 - The Perfect Chronicle)
 import os
 import logging
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -12,21 +11,61 @@ import google.generativeai as genai
 from supabase.client import Client, create_client
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import SupabaseVectorStore
+from langchain.text_splitter import CharacterTextSplitter
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# --- グローバルコンテキスト ---
 lifespan_context = {}
 
+# --- FastAPIのライフサイクル管理 ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info("学習係のライフサイクルが開始します...")
-    # (初期化処理は変更なし)
-    # ...
+    try:
+        supabase_url = os.environ.get("SUPABASE_URL")
+        supabase_key = os.environ.get("SUPABASE_KEY")
+        if not supabase_url or not supabase_key:
+            raise ValueError("Supabaseの環境変数が設定されていません。")
+
+        lifespan_context["supabase_client"] = create_client(supabase_url, supabase_key)
+        logging.info("Supabaseクライアントの初期化に成功しました。")
+
+        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_api_key:
+            raise ValueError("Gemini APIキーが設定されていません。")
+        genai.configure(api_key=gemini_api_key)
+
+        lifespan_context["embeddings"] = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        logging.info("GoogleGenerativeAIEmbeddingsの初期化に成功しました。")
+
+        lifespan_context["vectorstore"] = SupabaseVectorStore(
+            client=lifespan_context["supabase_client"],
+            embedding=lifespan_context["embeddings"],
+            table_name="documents",
+            query_name="match_documents",
+        )
+        logging.info("SupabaseVectorStoreの初期化に成功しました。")
+
+        lifespan_context["text_splitter"] = CharacterTextSplitter(
+            separator="\n\n",
+            chunk_size=500,
+            chunk_overlap=50,
+            length_function=len,
+        )
+        logging.info("TextSplitterの初期化に成功しました。")
+
+    except Exception as e:
+        logging.critical(f"学習係の初期化中に致命的なエラーが発生しました: {e}", exc_info=True)
+        # ここでアプリケーションを停止させるか、エラー状態を保持するか検討
+
     yield
+
     logging.info("学習係のライフサイクルが終了します。")
+    lifespan_context.clear()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -43,13 +82,12 @@ class LearningHistory(BaseModel):
     file_size: int
 
 # --- APIエンドポイント ---
-@app.get("/")
-async def index(): return {"message": "MIRAI-HEKO-Learner is running."}
-
 @app.post("/learn")
 async def learn(request: TextContent):
     try:
-        lifespan_context["vectorstore"].add_texts(texts=[request.text_content])
+        texts = lifespan_context["text_splitter"].split_text(request.text_content)
+        lifespan_context["vectorstore"].add_texts(texts=texts)
+        logging.info(f"{len(texts)}個のチャンクをベクトル化して保存しました。")
         return {"message": "Learning successful"}
     except Exception as e:
         logging.error(f"Error in /learn: {e}", exc_info=True)
@@ -58,7 +96,7 @@ async def learn(request: TextContent):
 @app.post("/query")
 async def query(request: Query):
     try:
-        docs = lifespan_context["vectorstore"].similarity_search(request.query_text, k=10)
+        docs = lifespan_context["vectorstore"].similarity_search(request.query_text, k=5)
         return {"documents": [doc.page_content for doc in docs]}
     except Exception as e:
         logging.error(f"Error in /query: {e}", exc_info=True)
@@ -67,14 +105,22 @@ async def query(request: Query):
 @app.post("/summarize")
 async def summarize(request: SummarizeRequest):
     try:
-        prompt = f"以下の会話履歴を、未来の自分が文脈を思い出すための、簡潔な箇条書きのメモに要約してください。\n\n# 会話履歴\n{request.history_text}"
-        summary = lifespan_context["genai_model"].generate_content(prompt).text
-        lifespan_context["vectorstore"].add_texts(texts=[summary])
-        return {"message": "Summarize and learn successful", "summary": summary}
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        prompt = f"以下の会話履歴を、次の会話で参照しやすいように、重要なキーワードや出来事を箇条書きで簡潔に要約してください。\n\n# 会話履歴\n{request.history_text}"
+        response = await model.generate_content_async(prompt)
+        summary_text = response.text.strip()
+
+        # 要約結果もベクトルDBに保存
+        lifespan_context["vectorstore"].add_texts(texts=[f"最近の会話の要約: {summary_text}"])
+        logging.info("会話の要約をベクトルDBに保存しました。")
+
+        return {"summary": summary_text}
     except Exception as e:
         logging.error(f"Error in /summarize: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- 残りのエンドポイント (log-concern, get-unresolved-concerns, resolve-concern, log-learning-history) ---
+# これらの関数は変更ありません
 @app.post("/log-concern")
 async def log_concern(request: Concern):
     try:
@@ -87,7 +133,7 @@ async def log_concern(request: Concern):
 @app.get("/get-unresolved-concerns")
 async def get_unresolved_concerns():
     try:
-        response = lifespan_context["supabase_client"].table('concerns').select('*').filter('is_resolved', 'eq', 'false').execute()
+        response = lifespan_context["supabase_client"].table('concerns').select('*').eq('is_resolved', False).execute()
         return {"concerns": response.data}
     except Exception as e:
         logging.error(f"Error in /get-unresolved-concerns: {e}", exc_info=True)
@@ -96,7 +142,7 @@ async def get_unresolved_concerns():
 @app.post("/resolve-concern")
 async def resolve_concern(request: ConcernUpdate):
     try:
-        lifespan_context["supabase_client"].table('concerns').update({'is_resolved': True, 'notified_at': datetime.now(timezone.utc).isoformat()}).eq('id', request.id).execute()
+        lifespan_context["supabase_client"].table('concerns').update({'is_resolved': True, 'resolved_at': datetime.now(timezone.utc).isoformat()}).eq('id', request.id).execute()
         return {"message": "Concern resolved"}
     except Exception as e:
         logging.error(f"Error in /resolve-concern: {e}", exc_info=True)
