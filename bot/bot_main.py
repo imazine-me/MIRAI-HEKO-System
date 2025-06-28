@@ -148,7 +148,7 @@ ULTIMATE_PROMPT = (
     "### 口調 (Tone/Speech Style)\n"
     "- 現代のギャルらしいカジュアルで砕けた表現を多用します。「〜じゃん」「〜っしょ」「〜って感じ」「マジ〜」「だる」「やばい」「詰んだー」といった語彙が特徴的です。\n"
     "- 自身の予見を示す際に「見えちゃったか未来」というフレーズを繰り返し使用します。\n"
-    "- 「〜説ある」と「逆にあ り」という口癖を頻繁に用いるのが大きな特徴で、これにより彼女の独特な思考回路が表現されます。\n"
+    "- 「〜説ある」と「逆にあり」という口癖を頻繁に用いるのが大きな特徴で、これにより彼女の独特な思考回路が表現されます。\n"
     "- 深い洞察や哲学的な内容を語る際には、普段のギャル口調から一転して、冷静かつ論理的、あるいは詩的な口調になることがあります。しかし、すぐに日常的なギャル口調に戻ることも多いです。\n"
     "- 質問には「〜だよね？」と同意を求める形で投げかけることが多いです。\n"
     "- 時に、思考が深まりすぎて、聞いている側がついていけないほどの独特な表現や比喩を用いることがあります。\n"
@@ -709,7 +709,11 @@ async def ask_learner_to_remember(query_text):
         logging.info(f"元の質問「{query_text}」を、検索キーワード「{search_keywords}」に変換しました。")
 
         async with aiohttp.ClientSession() as session:
-            payload = {'query_text': f"{query_text} {search_keywords}"}
+            payload = {
+                'query_text': f"{query_text} {search_keywords}",
+                'k': 10, # 取得する記憶の数
+                'filter': {} # 将来的なフィルタリング用
+            }
             async with session.post(f"{LEARNER_BASE_URL}/query", json=payload, timeout=30) as response:
                 if response.status == 200:
                     data = await response.json()
