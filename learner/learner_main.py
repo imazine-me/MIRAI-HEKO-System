@@ -1,4 +1,4 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.5.4 - The Final Key)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.5.5 - The Final Key)
 import os
 import logging
 from fastapi import FastAPI, Request, HTTPException
@@ -20,6 +20,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 lifespan_context = {}
 
+def get_env_variable(var_name, is_critical=True, default=None):
+    value = os.getenv(var_name)
+    if not value:
+        if is_critical:
+            logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
+            raise ValueError(f"'{var_name}' is not set.")
+        return default
+    return value
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info("学習係のライフサイクルが開始します...")
@@ -31,8 +40,6 @@ async def lifespan(app: FastAPI):
         lifespan_context["supabase_client"] = create_client(supabase_url, supabase_key)
         genai.configure(api_key=gemini_api_key)
         
-        # ★★★ ここが最重要修正点 ★★★
-        # LangChainのモジュールに、直接、APIキーを渡します。
         lifespan_context["embeddings"] = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=gemini_api_key)
         
         lifespan_context["vectorstore"] = SupabaseVectorStore(
