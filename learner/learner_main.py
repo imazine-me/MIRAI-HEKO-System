@@ -1,14 +1,14 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.6.1 - The Final Genesis)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.6.2 - The Final Truth)
 import os
 import logging
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 import google.generativeai as genai
-from supabase.client import create_client
+from supabase.client import Client, create_client
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain.text_splitter import CharacterTextSplitter
@@ -20,7 +20,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 lifespan_context = {}
 
-# ★★★ Bot本体から、この関数を、移植しました ★★★
 def get_env_variable(var_name, is_critical=True, default=None):
     value = os.getenv(var_name)
     if not value and is_critical:
@@ -66,7 +65,7 @@ class TextContent(BaseModel): text_content: str
 class QueryRequest(BaseModel): 
     query_text: str
     k: int = 10
-    filter: dict = {}
+    filter: Optional[dict] = None
 class SummarizeRequest(BaseModel): history_text: str
 class Concern(BaseModel): topic: str
 class ConcernUpdate(BaseModel): id: int
@@ -95,6 +94,7 @@ async def query(request: QueryRequest):
     if "vectorstore" not in lifespan_context:
         raise HTTPException(status_code=500, detail="Vectorstore not initialized")
     try:
+        # LangChainのsimilarity_searchを、正しい引数で、呼び出します。
         docs = lifespan_context["vectorstore"].similarity_search(
             request.query_text, 
             k=request.k,
