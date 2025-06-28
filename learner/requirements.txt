@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 langchain
 langchain-supabase
-langchain-google-genai
+lang-google-genai
 google-generativeai
 supabase
 python-dotenv
