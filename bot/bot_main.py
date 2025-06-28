@@ -316,21 +316,37 @@ HEKO_CONCERN_ANALYSIS_PROMPT = "あなたは、人の心の機微に敏感なカ
 GROWTH_REPORT_PROMPT = "あなたは、私たちの関係性をメタ的に分析する、全能のAI秘書「MAGI」です。以下の、過去一ヶ月の会話の要約リストを元に、imazineさんへの「成長記録レポート」を作成してください。レポートには、①imazineさんの思考の変化、②みらいとへー子の個性の進化、③私たち4人の関係性の深化、という3つの観点から、具体的なエピソードを交えつつ、愛情のこもった分析を記述してください。\n\n# 会話サマリーリスト\n{summaries}"
 
 # --- 関数群 ---
-async def ask_learner_to_learn(attachment):
+async def ask_learner_to_learn(attachment, author):
     if not LEARNER_BASE_URL: return False
     try:
-        text_content = (await attachment.read()).decode('utf-8', errors='ignore')
+        file_content = await attachment.read()
+        text_content = file_content.decode('utf-8', errors='ignore')
+        
         async with aiohttp.ClientSession() as session:
-            payload = {'text_content': text_content}
-            async with session.post(f"{LEARNER_BASE_URL}/learn", json=payload, timeout=120) as response:
-                if response.status == 200:
-                    logging.info(f"学習係への依頼成功: {attachment.filename}")
-                    return True
-                else:
+            # 学習を依頼
+            learn_payload = {'text_content': text_content}
+            async with session.post(f"{LEARNER_BASE_URL}/learn", json=learn_payload, timeout=120) as response:
+                if response.status != 200:
                     logging.error(f"学習係への依頼失敗: {response.status}, {await response.text()}")
                     return False
+
+            # 学習履歴の記録を依頼
+            history_payload = {
+                "user_id": str(author.id),
+                "username": author.name,
+                "filename": attachment.filename,
+                "file_size": attachment.size
+            }
+            async with session.post(f"{LEARNER_BASE_URL}/log-learning-history", json=history_payload, timeout=30) as history_response:
+                 if history_response.status == 200:
+                     logging.info(f"学習履歴の記録に成功: {attachment.filename}")
+                 else:
+                     logging.warning(f"学習履歴の記録に失敗: {history_response.status}")
+            
+            return True
+
     except Exception as e:
-        logging.error(f"学習依頼(/learn)中にエラー: {e}", exc_info=True)
+        logging.error(f"学習プロセス全体でエラー: {e}", exc_info=True)
         return False
 
 async def ask_learner_to_remember(query_text):
@@ -734,7 +750,7 @@ async def on_message(message):
             await generate_growth_report(message.channel)
         elif message.content.startswith('!learn') and message.attachments:
             await message.channel.send(f"（かしこまりました。『{message.attachments[0].filename}』から新しい知識を学習します...🧠）")
-            success = await ask_learner_to_learn(message.attachments[0])
+           success = await ask_learner_to_learn(message.attachments[0], message.author)
             await message.channel.send("学習が完了しました。" if success else "ごめんなさい、学習に失敗しました。")
         elif message.content.startswith('!deep_read') and message.reference:
              # ポッドキャストのディープリード処理
