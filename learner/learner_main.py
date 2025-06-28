@@ -94,6 +94,7 @@ async def query(request: QueryRequest):
     if "vectorstore" not in lifespan_context:
         raise HTTPException(status_code=500, detail="Vectorstore not initialized")
     try:
+        # LangChainのsimilarity_searchを、正しい引数で、呼び出します。
         docs = lifespan_context["vectorstore"].similarity_search(
             request.query_text, 
             k=request.k,
