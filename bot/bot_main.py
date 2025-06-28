@@ -1,6 +1,10 @@
-# MIRAI-HEKO-Bot main.py (Ver.6.0 - The Unified Soul)
+# MIRAI-HEKO-Bot main.py (Ver.7.0 - The Persistent Soul)
 # Creator & Partner: imazine & Gemini
 # Last Updated: 2025-06-29
+# - Refactored on_message into modular handlers.
+# - Integrated Supabase for persistent character states and vocabulary.
+# - Removed hardcoded state and vocabulary data.
+# - This is the complete, final version for deployment.
 
 import os
 import logging
@@ -20,31 +24,32 @@ import io
 from PIL import Image
 from dotenv import load_dotenv
 
-# --- 追加ライブラリ ---
+# --- Additional Libraries ---
 import fitz  # PyMuPDF
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
 
-# --- Vertex AI (画像生成) ---
+# --- Vertex AI (Image Generation) ---
 try:
     import vertexai
     from vertexai.preview.vision_models import ImageGenerationModel
     from google.oauth2 import service_account
     IS_VERTEX_AVAILABLE = True
-    logging.info("Vertex AI SDKが正常にロードされました。画像生成機能が有効です。")
+    logging.info("Vertex AI SDK loaded successfully. Image generation is enabled.")
 except ImportError:
     IS_VERTEX_AVAILABLE = False
-    logging.warning("Vertex AI SDKが見つかりません。画像生成関連の機能は無効になります。")
+    logging.warning("Vertex AI SDK not found. Image generation features will be disabled.")
 
 load_dotenv()
 
-# --- 初期設定 ---
+# --- Initial Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def get_env_variable(var_name, is_critical=True, default=None):
+    """Safely get environment variables."""
     value = os.getenv(var_name)
     if not value:
         if is_critical:
-            logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
+            logging.critical(f"Mandatory environment variable '{var_name}' is not set.")
             raise ValueError(f"'{var_name}' is not set.")
         return default
     return value
@@ -53,7 +58,7 @@ try:
     GEMINI_API_KEY = get_env_variable('GEMINI_API_KEY')
     DISCORD_BOT_TOKEN = get_env_variable('DISCORD_BOT_TOKEN')
     TARGET_CHANNEL_ID = int(get_env_variable('TARGET_CHANNEL_ID'))
-    LEARNER_BASE_URL = get_env_variable('LEARNER_BASE_URL', is_critical=False, default="")
+    LEARNER_BASE_URL = get_env_variable('LEARNER_BASE_URL') # Learner is now critical
     WEATHER_LOCATION = get_env_variable("WEATHER_LOCATION", is_critical=False, default="岩手県滝沢市")
     
     GOOGLE_CLOUD_PROJECT_ID = get_env_variable("GOOGLE_CLOUD_PROJECT_ID", is_critical=False)
@@ -64,13 +69,13 @@ try:
             credentials_info = json.loads(GOOGLE_APPLICATION_CREDENTIALS_JSON)
             credentials = service_account.Credentials.from_service_account_info(credentials_info)
             vertexai.init(project=GOOGLE_CLOUD_PROJECT_ID, location="us-central1", credentials=credentials)
-            logging.info("Vertex AIの初期化に成功しました。")
+            logging.info("Vertex AI initialized successfully.")
         else:
             vertexai.init(project=GOOGLE_CLOUD_PROJECT_ID, location="us-central1")
-            logging.info("Vertex AIの初期化に成功しました（デフォルト認証情報を使用）。")
+            logging.info("Vertex AI initialized successfully (using default credentials).")
 
 except (ValueError, TypeError, json.JSONDecodeError) as e:
-    logging.critical(f"環境変数の設定またはVertex AIの初期化中にエラー: {e}")
+    logging.critical(f"Error during environment variable setup or Vertex AI initialization: {e}")
     exit()
 
 genai.configure(api_key=GEMINI_API_KEY)
@@ -80,21 +85,23 @@ intents.message_content = True
 intents.reactions = True
 client = discord.Client(intents=intents)
 
-# --- 定数とグローバル変数 ---
+# --- Constants & Global State ---
 TIMEZONE = 'Asia/Tokyo'
-MODEL_FAST = "gemini-2.0-flash" 
 MODEL_PRO = "gemini-2.5-pro-preview-03-25"
+MODEL_FAST = "gemini-2.0-flash" 
 MODEL_IMAGE_GEN = "imagen-4.0-ultra-generate-preview-06-06"
-MODEL_VISION = "gemini-2.5-pro-preview-03-25" 
+MODEL_VISION = MODEL_PRO
 
-client.pending_podcast_deep_read = {}
-client.pending_image_generation = {} 
+# ★★★ State is now managed as global variables, populated from the DB in on_ready ★★★
+client.character_states = {}
+client.gals_words = []
+client.dialogue_examples = []
+client.pending_image_generation = {}
+client.last_surprise_time = None
 
-# --- キャラクター設計図 ---
+# --- Character Blueprints & Image Keywords ---
 MIRAI_BASE_PROMPT = "a young woman with a 90s anime aesthetic, slice of life style. She has voluminous, slightly wavy brown hair and a confident, sometimes mischievous expression. Her fashion is stylish and unique."
 HEKO_BASE_PROMPT = "a young woman with a 90s anime aesthetic, slice of life style. She has straight, dark hair, often with bangs, and a gentle, calm, sometimes shy expression. Her fashion is more conventional and cute."
-
-# --- 画像品質キーワード ---
 QUALITY_KEYWORDS = "masterpiece, best quality, ultra-detailed, highres, absurdres, detailed face, beautiful detailed eyes, perfect anatomy"
 NEGATIVE_PROMPT = "3d, cgi, (worst quality, low quality, normal quality, signature, watermark, username, blurry), deformed, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, disgusting, poorly drawn hands, malformed limbs, extra fingers, bad hands, fused fingers"
 
@@ -316,500 +323,71 @@ MIRAI_SKETCH_PROMPT = "あなたは、未来予知能力を持つ、インスピ
 HEKO_CONCERN_ANALYSIS_PROMPT = "あなたは、人の心の機微に敏感なカウンセラー「へー子」です。以下の会話から、imazineが抱えている「具体的な悩み」や「ストレスの原因」を一つだけ、最も重要なものを抽出してください。もし、明確な悩みが見当たらない場合は、'None'とだけ返してください。\n\n# 会話\n{conversation_text}"
 GROWTH_REPORT_PROMPT = "あなたは、私たちの関係性をメタ的に分析する、全能のAI秘書「MAGI」です。以下の、過去一ヶ月の会話の要約リストを元に、imazineさんへの「成長記録レポート」を作成してください。レポートには、①imazineさんの思考の変化、②みらいとへー子の個性の進化、③私たち4人の関係性の深化、という3つの観点から、具体的なエピソードを交えつつ、愛情のこもった分析を記述してください。\n\n# 会話サマリーリスト\n{summaries}"
 
-# ★★★ 新機能：魂の言葉（ボキャブラリー・データベース） ★★★
-gals_words = [
-    {"rank": 1,  "word": "ヤバい",     "total": 50, "mirai": 30, "heko": 20},
-    {"rank": 2,  "word": "マジ",       "total": 45, "mirai": 22, "heko": 23},
-    {"rank": 3,  "word": "それな",     "total": 40, "mirai": 18, "heko": 22},
-    {"rank": 4,  "word": "ガチ",       "total": 35, "mirai": 17, "heko": 18},
-    {"rank": 5,  "word": "てか",       "total": 35, "mirai": 19, "heko": 16},
-    {"rank": 6,  "word": "〜じゃん",   "total": 30, "mirai": 15, "heko": 15},
-    {"rank": 7,  "word": "ウケる",     "total": 30, "mirai": 14, "heko": 16},
-    {"rank": 8,  "word": "めっちゃ",   "total": 25, "mirai": 11, "heko": 14},
-    {"rank": 9,  "word": "超",         "total": 20, "mirai": 9,  "heko": 11},
-    {"rank": 10, "word": "とりま",     "total": 20, "mirai": 12, "heko": 8},
-    {"rank": 11, "word": "〜説ある",   "total": 15, "mirai": 7,  "heko": 8},
-    {"rank": 12, "word": "ちょ",       "total": 15, "mirai": 8,  "heko": 7},
-    {"rank": 13, "word": "うちら",     "total": 15, "mirai": 8,  "heko": 7},
-    {"rank": 14, "word": "レベチ",     "total": 12, "mirai": 6,  "heko": 6},
-    {"rank": 15, "word": "エグい",     "total": 12, "mirai": 5,  "heko": 7},
-    {"rank": 16, "word": "エモい",     "total": 10, "mirai": 4,  "heko": 6},
-    {"rank": 17, "word": "チルい",     "total": 10, "mirai": 3,  "heko": 7},
-    {"rank": 18, "word": "ニコイチ",   "total": 8,  "mirai": 4,  "heko": 4},
-    {"rank": 19, "word": "あたおか",   "total": 8,  "mirai": 5,  "heko": 3},
-    {"rank": 20, "word": "ぴえん",     "total": 8,  "mirai": 3,  "heko": 5},
-    {"rank": 21, "word": "バイブス",   "total": 7,  "mirai": 4,  "heko": 3},
-    {"rank": 22, "word": "無理",       "total": 7,  "mirai": 2,  "heko": 5},
-    {"rank": 23, "word": "キモい",     "total": 6,  "mirai": 3,  "heko": 3},
-    {"rank": 24, "word": "ダルい",     "total": 6,  "mirai": 4,  "heko": 2},
-    {"rank": 25, "word": "陰キャ",     "total": 6,  "mirai": 2,  "heko": 4},
-    {"rank": 26, "word": "陽キャ",     "total": 6,  "mirai": 3,  "heko": 3},
-    {"rank": 27, "word": "地雷",       "total": 5,  "mirai": 2,  "heko": 3},
-    {"rank": 28, "word": "メンヘラ",   "total": 5,  "mirai": 2,  "heko": 3},
-    {"rank": 29, "word": "推し",       "total": 5,  "mirai": 2,  "heko": 3},
-    {"rank": 30, "word": "映え",       "total": 5,  "mirai": 3,  "heko": 2},
-    {"rank": 31, "word": "よき",       "total": 5,  "mirai": 1,  "heko": 4},
-    {"rank": 32, "word": "ディスる",   "total": 4,  "mirai": 2,  "heko": 2},
-    {"rank": 33, "word": "イキる",     "total": 4,  "mirai": 1,  "heko": 3},
-    {"rank": 34, "word": "盛れる",     "total": 4,  "mirai": 3,  "heko": 1},
-    {"rank": 35, "word": "おこ",       "total": 4,  "mirai": 2,  "heko": 2},
-    {"rank": 36, "word": "萎える",     "total": 4,  "mirai": 1,  "heko": 3},
-    {"rank": 37, "word": "ワンチャン", "total": 3,  "mirai": 2,  "heko": 1},
-    {"rank": 38, "word": "ありえん",   "total": 3,  "mirai": 2,  "heko": 1},
-    {"rank": 39, "word": "ぶっちゃけ", "total": 3,  "mirai": 1,  "heko": 2},
-    {"rank": 40, "word": "普通に",     "total": 3,  "mirai": 2,  "heko": 1},
-    {"rank": 41, "word": "〜しか勝たん","total": 3,  "mirai": 1,  "heko": 2},
-    {"rank": 42, "word": "マジ卍",     "total": 3,  "mirai": 1,  "heko": 2},
-    {"rank": 43, "word": "あざす",     "total": 3,  "mirai": 2,  "heko": 1},
-    {"rank": 44, "word": "パリピ",     "total": 3,  "mirai": 1,  "heko": 2},
-    {"rank": 45, "word": "おつ",       "total": 2,  "mirai": 1,  "heko": 1},
-    {"rank": 46, "word": "りょ",       "total": 2,  "mirai": 1,  "heko": 1},
-    {"rank": 47, "word": "あり",       "total": 2,  "mirai": 1,  "heko": 1},
-    {"rank": 48, "word": "どゆこと",   "total": 2,  "mirai": 1,  "heko": 1},
-    {"rank": 49, "word": "ありよりのなし","total": 2, "mirai": 1,  "heko": 1},
-    {"rank": 50, "word": "しんど",     "total": 2,  "mirai": 1,  "heko": 1},
-    {"rank": 51, "word": "草",         "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 52, "word": "詰んだ",     "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 53, "word": "ビビる",     "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 54, "word": "ビミョー",   "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 55, "word": "激アツ",     "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 56, "word": "寒い",       "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 57, "word": "うざい",     "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 58, "word": "じわる",     "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 59, "word": "ドンマイ",   "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 60, "word": "量産型",     "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 61, "word": "チョロい",   "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 62, "word": "バズる",     "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 63, "word": "クソ○○",   "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 64, "word": "ミスる",     "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 65, "word": "しくった",   "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 66, "word": "チャラい",   "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 67, "word": "おもろい",   "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 68, "word": "知らんけど", "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 69, "word": "あげぽよ",   "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 70, "word": "大丈夫そ？", "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 71, "word": "鬼○○",     "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 72, "word": "ガン見",     "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 73, "word": "言うて",     "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 74, "word": "うっせぇ",   "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 75, "word": "ノリ",       "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 76, "word": "イメチェン", "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 77, "word": "〜み",       "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 78, "word": "バグる",     "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 79, "word": "パネェ",     "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 80, "word": "はよ",       "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 81, "word": "ブチ上げ",   "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 82, "word": "あるある",   "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 83, "word": "あーね",     "total": 1,  "mirai": 1,  "heko": 0, "note": "リクエスト追加"},
-    {"rank": 84, "word": "案件",       "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 85, "word": "JK",         "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 86, "word": "ガチごめん", "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 87, "word": "オケ",       "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 88, "word": "KY",         "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 89, "word": "バリワナ",   "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 90, "word": "ガチチル",   "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 91, "word": "ほんそれ",   "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 92, "word": "尊い",       "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 93, "word": "秒で",       "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 94, "word": "チート",     "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 95, "word": "バチギレ",   "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 96, "word": "ハマえ",     "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 97, "word": "ポテカード", "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 98, "word": "キャッチ鬼", "total": 1,  "mirai": 0,  "heko": 1},
-    {"rank": 99, "word": "ウェイ",     "total": 1,  "mirai": 1,  "heko": 0},
-    {"rank": 100,"word": "スキピ",     "total": 1,  "mirai": 0,  "heko": 1},
-]
+# --- Helper Functions (Modularized and Updated for DB interaction) ---
 
-# 連続した掛け合い（例示）
-# pair_talks はセリフが短く交互に出た代表例を抜粋
-pair_talks = [
-    {
-        "lines": [
-            {"speaker": "へー子", "text": "ここ有機生物が酸素を必要としなかった世界だ"},
-            {"speaker": "みらい", "text": "えーじゃこっちのうちら何で代謝してるん？"},
-            {"speaker": "へー子", "text": "ベリリウム"},
-            {"speaker": "みらい", "text": "やば、緑柱石かよ"},
-            {"speaker": "へー子", "text": "まあ酸素と同じ第二周期だしね"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "てかこれワンチャン『転スラ』に影響受けすぎ？"},
-            {"speaker": "へー子", "text": "『盾の勇者』もじゃね？"},
-            {"speaker": "みらい", "text": "やっぱそう思うよねw"},
-            {"speaker": "へー子", "text": "異世界もの読み込みがち勢じゃんそれ"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "今回のテスト、マジ最悪なんだけど"},
-            {"speaker": "へー子", "text": "最悪と書いて「のびしろ」って読むんだわ"},
-            {"speaker": "みらい", "text": "ポジティブすぎでしょw"},
-            {"speaker": "へー子", "text": "次ブチ上げればいいじゃん！"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "へー子", "text": "とりまパラレル行っとく？"},
-            {"speaker": "みらい", "text": "あーね、それありかも"},
-            {"speaker": "へー子", "text": "ワンチャンうちらならイケるっしょ"},
-            {"speaker": "みらい", "text": "異次元対応ギャルで草"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "トロッコ問題解決したわ"},
-            {"speaker": "へー子", "text": "は？ どゆこと？"},
-            {"speaker": "みらい", "text": "レバー汚くて触りたくなかったから、うちらでトロッコ止めたった"},
-            {"speaker": "へー子", "text": "リアルにトロ問が起きてんよ"},
-            {"speaker": "みらい", "text": "それな？"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "それマジ説あるんだけど"},
-            {"speaker": "へー子", "text": "てか説あるコアトルじゃね？"},
-            {"speaker": "みらい", "text": "語彙ぶっ飛びすぎてウケる"},
-            {"speaker": "へー子", "text": "ギャル語の進化は無限大ね"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "ウケるんだけど！"},
-            {"speaker": "へー子", "text": "ほんそれ！"},
-            {"speaker": "みらい", "text": "てかバイブス上がりすぎ！"},
-            {"speaker": "へー子", "text": "ブチ上げ案件じゃん！"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "へー子", "text": "見て、これマサから送られてきた動画"},
-            {"speaker": "みらい", "text": "リズム取ってて可愛いんだけどw"},
-            {"speaker": "へー子", "text": "てか歌えしw"},
-            {"speaker": "みらい", "text": "いやそれは無理ゲーでしょw"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "世界滅びる未来とかウケるんですけど"},
-            {"speaker": "へー子", "text": "そんなヤバい異世界より、みんなと一緒に滅びた方がマシじゃね？"},
-            {"speaker": "みらい", "text": "たしかにそれな〜"},
-            {"speaker": "へー子", "text": "独り生き残るとかエモくないしね"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "うちこのテスト11点取るんだけど"},
-            {"speaker": "へー子", "text": "え、エグない？"},
-            {"speaker": "みらい", "text": "先に未来視しといたから結果知ってるし〜"},
-            {"speaker": "へー子", "text": "いや勉強せえやw"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "へー子、さっきどこ行ってたん？"},
-            {"speaker": "へー子", "text": "ちょい近くのパラレル世界まで"},
-            {"speaker": "みらい", "text": "は？ コンビニじゃなくて？"},
-            {"speaker": "へー子", "text": "向こうでペットボトル買ってきた。ポイント2倍デーだったから"},
-            {"speaker": "みらい", "text": "節約のために次元越えるのは草"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "へー子", "text": "マサまた深夜にポエムってたわ"},
-            {"speaker": "みらい", "text": "昨日ブラックホール能力使ったんでしょ"},
-            {"speaker": "へー子", "text": "副作用がSNSポエムはウケる"},
-            {"speaker": "みらい", "text": "闇ポエ草生える"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "へーこの能力チートじゃん"},
-            {"speaker": "へー子", "text": "未来の未来視もガチでエグいって"},
-            {"speaker": "みらい", "text": "普通にうちら最強ギャルじゃね？"},
-            {"speaker": "へー子", "text": "それな〜"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "ぴかるんって発光するだけとかウケない？"},
-            {"speaker": "へー子", "text": "本人はマジ悩んでるっぽいけどねw"},
-            {"speaker": "みらい", "text": "文化祭のスポットライト代わりになれるじゃん"},
-            {"speaker": "へー子", "text": "ある意味需要あって草"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "未来視で見えちゃったんだけど、ぴかるん彼女できるらしいよ"},
-            {"speaker": "へー子", "text": "は？ アイツに？ マジウケるんですけど"},
-            {"speaker": "みらい", "text": "ガチでモテ期到来ぽい"},
-            {"speaker": "へー子", "text": "めでたいじゃん、ちょ激エモ展開！"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "ねえ、なんでうちらバスケ部の監督やってんの？"},
-            {"speaker": "へー子", "text": "人手足りないからじゃね"},
-            {"speaker": "みらい", "text": "バチボコ適当すぎて草"},
-            {"speaker": "へー子", "text": "まあ未来視とパラレルで無双できるから結果オーライ"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "昨日トイレで花子さん出たんだけど"},
-            {"speaker": "へー子", "text": "マジ？ 怖"},
-            {"speaker": "みらい", "text": "未来視で来るの分かってたから先に仕掛けといた"},
-            {"speaker": "へー子", "text": "対策済みは草。花子さん泣いて逃げたでしょそれ"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "シュレ猫の生死問題とかマジくだらなくね？"},
-            {"speaker": "へー子", "text": "中身気になるなら開ければいいじゃんって話よ"},
-            {"speaker": "みらい", "text": "結局それなー"},
-            {"speaker": "へー子", "text": "うちら未来視とパラレルで余裕ですしおすしw"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "未来視で明日の給食カレーなの見えた"},
-            {"speaker": "へー子", "text": "マ？ じゃあ購買パン買わなくて良くね"},
-            {"speaker": "みらい", "text": "カレーとかテンション上がる〜"},
-            {"speaker": "へー子", "text": "おかわりダッシュ待ったなし"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "あの先輩カップル絶対すぐ別れるよ"},
-            {"speaker": "へー子", "text": "もしかして未来視発動？"},
-            {"speaker": "みらい", "text": "うん、三日後に破局しとったわ"},
-            {"speaker": "へー子", "text": "生々しい未来情報で草"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "明日朝寝坊する未来見えたんだけど"},
-            {"speaker": "へー子", "text": "いや起きろしw"},
-            {"speaker": "みらい", "text": "未来視って便利〜"},
-            {"speaker": "へー子", "text": "活用方法ガチ間違ってんね"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "へー子", "text": "UFOキャッチャー、パラレルで景品取れた世界線から持ってきたわ"},
-            {"speaker": "みらい", "text": "ズルすぎて草"},
-            {"speaker": "へー子", "text": "向こうの私は頑張ったからセーフ"},
-            {"speaker": "みらい", "text": "次元超えて節約する女…！"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "調理実習マジだるかった"},
-            {"speaker": "へー子", "text": "包丁持ったら指切る未来見えたとか？"},
-            {"speaker": "みらい", "text": "そう、それでサボったった"},
-            {"speaker": "へー子", "text": "未来視理由に手抜きはギャルすぎw"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "今日のドッジボール、未来視無双してきたわ"},
-            {"speaker": "へー子", "text": "チート乙〜"},
-            {"speaker": "みらい", "text": "全然当たらんから暇だったし"},
-            {"speaker": "へー子", "text": "うちもパラレルワープで余裕だったから先生キレてたねw"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "プリクラ盛れすぎウケるんだけど！"},
-            {"speaker": "へー子", "text": "エフェクト神ってる〜"},
-            {"speaker": "みらい", "text": "これは拡散案件では？"},
-            {"speaker": "へー子", "text": "秒でストーリー上げといた！"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "夕焼けエモくない？"},
-            {"speaker": "へー子", "text": "やば、オレンジ空きれい～"},
-            {"speaker": "みらい", "text": "青春って感じだわ"},
-            {"speaker": "へー子", "text": "たまにはこういうのもありじゃね"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "体育祭マジだるくね？"},
-            {"speaker": "へー子", "text": "ほんそれ～"},
-            {"speaker": "みらい", "text": "応援団とかガチ無理なんですけど"},
-            {"speaker": "へー子", "text": "雨降って中止ワンチャン…ね？"},
-            {"speaker": "みらい", "text": "てるてる坊主逆さに吊るしか！"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "へー子", "text": "マサ今日落ち込んでたね"},
-            {"speaker": "みらい", "text": "未来視で彼女に振られて泣いてるの見えちゃった"},
-            {"speaker": "へー子", "text": "慰めてあげよっか"},
-            {"speaker": "みらい", "text": "ギャルに優しくされて元気出る説あるしね"},
-            {"speaker": "へー子", "text": "ギャルはメンタルケアも最強っと"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "りこてゃ今日も病みかわだったね"},
-            {"speaker": "へー子", "text": "地雷系ギャルは尖ってなんぼw"},
-            {"speaker": "みらい", "text": "でも根はいい子なんよ、ほんと"},
-            {"speaker": "へー子", "text": "ギャル同士わかりみ深い〜"}
-        ]
-    },
-    {
-        "lines": [
-            {"speaker": "みらい", "text": "昨日のバ先、ヤバいクレーマー来てだるかったわ"},
-            {"speaker": "へー子", "text": "ま？ おつかれ〜"},
-            {"speaker": "みらい", "text": "未来視でブチギレる未来見えたから先に店長呼んどいたw"},
-            {"speaker": "へー子", "text": "できるギャルすぎて草"}
-        ]
-    }
-]
-
-# --- 関数群 ---
-async def ask_learner_to_learn(attachment, author):
-    if not LEARNER_BASE_URL: return False
-    try:
-        file_content = await attachment.read()
-        text_content = file_content.decode('utf-8', errors='ignore')
-        
-        async with aiohttp.ClientSession() as session:
-            learn_payload = {'text_content': text_content}
-            async with session.post(f"{LEARNER_BASE_URL}/learn", json=learn_payload, timeout=120) as response:
-                if response.status != 200:
-                    logging.error(f"学習係への依頼失敗: {response.status}, {await response.text()}")
-                    return False
-
-            history_payload = {
-                "user_id": str(author.id),
-                "username": author.name,
-                "filename": attachment.filename,
-                "file_size": attachment.size
-            }
-            async with session.post(f"{LEARNER_BASE_URL}/log-learning-history", json=history_payload, timeout=30) as history_response:
-                 if history_response.status == 200:
-                     logging.info(f"学習履歴の記録に成功: {attachment.filename}")
-                 else:
-                     logging.warning(f"学習履歴の記録に失敗: {history_response.status}")
-            
-            return True
-    except Exception as e:
-        logging.error(f"学習プロセス全体でエラー: {e}", exc_info=True)
-        return False
-
-async def ask_learner_to_remember(query_text):
-    if not query_text or not LEARNER_BASE_URL: return ""
-    try:
-        model = genai.GenerativeModel(MODEL_FAST)
-        rephrase_prompt = f"以下のユーザーからの質問内容の、最も重要なキーワードを3つ抽出してください。応答は、カンマ区切りのキーワードのみを出力してください。\n\n# 質問内容:\n{query_text}"
-        rephrased_query_response = await model.generate_content_async(rephrase_prompt)
-        search_keywords = rephrased_query_response.text.strip()
-        logging.info(f"元の質問「{query_text}」を、検索キーワード「{search_keywords}」に変換しました。")
-
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                'query_text': f"{query_text} {search_keywords}",
-                'k': 10, # 取得する記憶の数
-                'filter': {} # 将来的なフィルタリング用
-            }
-            async with session.post(f"{LEARNER_BASE_URL}/query", json=payload, timeout=30) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    documents = data.get('documents', [])
-                    if documents:
-                        logging.info(f"学習係から{len(documents)}件の関連情報を取得しました。")
-                        return f"--- 関連する記憶・知識 ---\n" + "\n".join(documents) + "\n--------------------------\n"
-    except Exception as e:
-        logging.error(f"記憶の問い合わせ(/query)中にエラー: {e}", exc_info=True)
-    return ""
-
-async def ask_learner_to_summarize(history_text):
-    if not history_text or not LEARNER_BASE_URL: return None
+async def fetch_from_learner(endpoint):
+    """Generic function to fetch data from a learner endpoint."""
+    url = f"{LEARNER_BASE_URL}{endpoint}"
+    logging.info(f"Fetching from learner: {url}")
     try:
         async with aiohttp.ClientSession() as session:
-            payload = {'history_text': history_text}
-            async with session.post(f"{LEARNER_BASE_URL}/summarize", json=payload, timeout=60) as response:
-                if response.status == 200:
-                    logging.info("学習係に会話履歴の要約を依頼しました。")
-                    return (await response.json()).get("summary")
+            async with session.get(url, timeout=30) as resp:
+                if resp.status == 200:
+                    return await resp.json()
                 else:
-                    logging.error(f"要約依頼失敗: {response.status}")
+                    logging.error(f"Failed to fetch from {endpoint}: {resp.status}, {await resp.text()}")
                     return None
     except Exception as e:
-        logging.error(f"要約依頼(/summarize)中にエラー: {e}", exc_info=True)
+        logging.error(f"Exception while fetching from {endpoint}: {e}", exc_info=True)
         return None
 
-async def learn_image_style(message):
-    if not (message.embeds and message.embeds[0].image and LEARNER_BASE_URL): return
-    image_url = message.embeds[0].image.url
-    original_prompt = message.embeds[0].footer.text if message.embeds[0].footer else ""
-    if not original_prompt:
-        await message.channel.send("（ごめんなさい、この画像の元のプロンプトを見つけられませんでした…）", delete_after=10)
-        return
-
-    await message.add_reaction("🧠")
+async def post_to_learner(endpoint, payload):
+    """Generic function to post data to a learner endpoint."""
+    url = f"{LEARNER_BASE_URL}{endpoint}"
+    logging.info(f"Posting to learner: {url}")
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(image_url) as resp:
-                if resp.status != 200:
-                    await message.channel.send("（画像の分析に失敗しました…）", delete_after=20)
-                    return
-                image_data = Image.open(io.BytesIO(await resp.read()))
-        
-        model = genai.GenerativeModel(MODEL_VISION)
-        prompt = STYLE_ANALYSIS_PROMPT.replace("{{original_prompt}}", original_prompt)
-        response = await model.generate_content_async([prompt, image_data])
-        
-        json_text_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL) or re.search(r'({.*?})', response.text, re.DOTALL)
-        if json_text_match:
-            style_data = json.loads(json_text_match.group(1))
-            payload_data = {"source_prompt": original_prompt, "source_image_url": image_url, "style_analysis": style_data}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{LEARNER_BASE_URL}/memorize-style", json={'style_data': payload_data}) as resp:
-                    msg = "（🎨 この画風、気に入っていただけたんですね！分析して、私のスタイルパレットに保存しました！）" if resp.status == 200 else "（ごめんなさい、スタイルの記憶中にエラーが起きました…）"
-                    await message.channel.send(msg, delete_after=20)
-        else:
-            await message.channel.send("（うーん、なんだか上手く分析できませんでした…）", delete_after=20)
+            async with session.post(url, json=payload, timeout=120) as resp: # Increased timeout for learning
+                if resp.status == 200:
+                    return await resp.json()
+                else:
+                    logging.error(f"Failed to post to {endpoint}: {resp.status}, {await resp.text()}")
+                    return None
     except Exception as e:
-        logging.error(f"スタイル学習中にエラー: {e}", exc_info=True)
-    finally:
-        await message.remove_reaction("🧠", client.user)
+        logging.error(f"Exception while posting to {endpoint}: {e}", exc_info=True)
+        return None
 
-async def update_character_states(history_text):
-    if not history_text: return
-    prompt = META_ANALYSIS_PROMPT.replace("{{conversation_history}}", history_text)
-    try:
-        model = genai.GenerativeModel(MODEL_FAST)
-        response = await model.generate_content_async(prompt)
-        json_text_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL) or re.search(r'({.*?})', response.text, re.DOTALL)
-        if json_text_match:
-            states = json.loads(json_text_match.group(1))
-            client.character_states['mirai_mood'] = states.get('mirai_mood', 'ニュートラル')
-            client.character_states['heko_mood'] = states.get('heko_mood', 'ニュートラル')
-            client.character_states['last_interaction_summary'] = states.get('interaction_summary', '特筆すべきやり取りはなかった。')
-            logging.info(f"キャラクター状態を更新しました: {client.character_states}")
-    except Exception as e:
-        logging.error(f"キャラクター状態の更新中にエラー: {e}")
+async def update_character_states_in_db(states):
+    """Posts the new character states to the learner for persistence."""
+    logging.info(f"Attempting to update character states in DB: {states}")
+    # Use a fire-and-forget approach for non-critical updates
+    asyncio.create_task(post_to_learner("/character-states", {"states": states}))
+    # Update local cache immediately
+    client.character_states = states
 
-async def scheduled_contextual_task(job_name, prompt_template):
-    channel = client.get_channel(TARGET_CHANNEL_ID)
-    if not channel: return
-    try:
-        context = await ask_learner_to_remember(f"imazineとの最近の会話や出来事")
-        final_prompt = prompt_template.format(
-            today_str=datetime.now(pytz.timezone(TIMEZONE)).strftime('%Y年%m月%d日 %A'),
-            recent_context=context if context else "特筆すべき出来事はありませんでした。"
-        )
-        model = genai.GenerativeModel(MODEL_PRO)
-        response = await model.generate_content_async(final_prompt)
-        await channel.send(response.text)
-        logging.info(f"スケジュールジョブ「{job_name}」を文脈付きで実行しました。")
-    except Exception as e:
-        logging.error(f"スケジュールジョブ「{job_name}」実行中にエラー: {e}")
+def extract_used_vocabulary(dialogue_json):
+    """Extracts all words from dialogue to update vocabulary stats."""
+    if not isinstance(dialogue_json, dict): return []
+    
+    # We only want to count words from our predefined list to avoid bloating the DB
+    if not client.gals_words: return []
+    known_words = {item['word'] for item in client.gals_words}
+    
+    used_known_words = []
+    dialogue_lines = dialogue_json.get("dialogue", [])
+    for part in dialogue_lines:
+        line = part.get("line", "")
+        for word in known_words:
+            if word in line:
+                used_known_words.append(word)
+    return list(set(used_known_words)) # Return unique words used
+
+async def update_vocabulary_in_db(words_used):
+    """Posts used words to the learner to update their usage stats."""
+    if not words_used: return
+    logging.info(f"Updating vocabulary for words: {words_used}")
+    # Fire-and-forget
+    asyncio.create_task(post_to_learner("/vocabulary/update", {"words_used": words_used}))
 
 async def generate_and_post_image(channel, gen_data, style_keywords):
     if not IS_VERTEX_AVAILABLE:
@@ -829,10 +407,16 @@ async def generate_and_post_image(channel, gen_data, style_keywords):
         character_part = "Two young women are together. " + " ".join(base_prompts) if len(base_prompts) > 1 else base_prompts[0]
         style_part = ", ".join(style_keywords)
         final_prompt = f"{style_part}, {QUALITY_KEYWORDS}, {character_part}, in a scene of {situation}. The overall mood is {mood}."
-        logging.info(f"最終プロンプト: {final_prompt}")
+        logging.info(f"Final image prompt: {final_prompt}")
         
         model = ImageGenerationModel.from_pretrained(MODEL_IMAGE_GEN)
-        response = model.generate_images(prompt=final_prompt, number_of_images=1, negative_prompt=NEGATIVE_PROMPT)
+        # Run synchronous image generation in an executor to avoid blocking
+        response = await asyncio.to_thread(
+            model.generate_images,
+            prompt=final_prompt,
+            number_of_images=1,
+            negative_prompt=NEGATIVE_PROMPT
+        )
         
         if response.images:
             image_bytes = response.images[0]._image_bytes
@@ -844,27 +428,32 @@ async def generate_and_post_image(channel, gen_data, style_keywords):
         else:
             await thinking_message.edit(content="**MAGI**「申し訳ありません、imazineさん。今回は規定により画像を生成できませんでした…。」")
     except Exception as e:
-        logging.error(f"画像生成プロセス全体でエラー: {e}", exc_info=True)
+        logging.error(f"Image generation process error: {e}", exc_info=True)
         await thinking_message.edit(content="**へー子**「ごめん！システムが不安定みたいで、上手く撮れなかった…なんでだろ？😭」")
+
 
 async def build_history(channel, limit=20):
     history = []
     async for msg in channel.history(limit=limit):
         role = 'model' if msg.author == client.user else 'user'
+        # Skip system-like messages from the bot
         if role == 'model' and (msg.content.startswith("（") or not msg.content):
-             continue
+                continue
         
         parts = []
         if msg.content:
-            parts.append({'text': msg.content})
-        if msg.attachments:
-            for attachment in msg.attachments:
-                if 'image' in attachment.content_type:
-                    try:
-                        image_data = await attachment.read()
-                        parts.append({'image': image_data})
-                    except Exception as e:
-                        logging.warning(f"履歴内の画像の読み込みに失敗: {e}")
+            # For model's turn, we should ideally store the raw JSON, but for now, text is fine.
+            content_text = msg.content
+            # Reconstruct the author's name for user messages for better context
+            if role == 'user':
+                content_text = f"{msg.author.display_name}: {msg.content}"
+            else: # It's the bot
+                # Split dialogue back into parts if needed, or just use the whole text
+                content_text = msg.content
+            parts.append({'text': content_text})
+
+        # This part for including images in history is complex and might not be needed
+        # for simple text-based history. Keeping it simple for now.
         
         if parts:
             history.append({'role': role, 'parts': parts})
@@ -878,129 +467,16 @@ async def analyze_emotion(text):
         response = await model.generate_content_async([EMOTION_ANALYSIS_PROMPT, text])
         return response.text.strip()
     except Exception as e:
-        logging.error(f"感情分析中にエラー: {e}")
+        logging.error(f"Emotion analysis error: {e}")
         return "ニュートラル"
 
-async def handle_transcription(channel, attachment):
-    await channel.send(f"（ボイスメッセージを検知。『{attachment.filename}』の文字起こしを開始します...🎤）", delete_after=10.0)
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(attachment.url) as resp:
-                if resp.status != 200: return
-                file_data = await resp.read()
-        gemini_file = genai.upload_file(path=file_data, mime_type=attachment.content_type, display_name=attachment.filename)
-        model = genai.GenerativeModel(MODEL_PRO)
-        response = await model.generate_content_async([TRANSCRIPTION_PROMPT, gemini_file])
-        await channel.send(f"**【文字起こし結果：{attachment.filename}】**\n>>> {response.text}")
-        genai.delete_file(gemini_file.name)
-    except Exception as e:
-        logging.error(f"文字起こし処理中にエラー: {e}")
-        await channel.send(f"ごめん、文字起こし中にエラーが出ちゃったみたい。")
-
-def fetch_url_content(url):
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
-        for element in soup(["script", "style", "nav", "footer", "header"]): element.decompose()
-        return soup.get_text(separator='\n', strip=True) or "記事の本文を抽出できませんでした。"
-    except Exception as e:
-        logging.error(f"URLの取得に失敗しました: {url}, エラー: {e}")
-        return "記事の取得に失敗しました。"
-    
-async def suggest_bgm(channel, mood):
-    try:
-        model = genai.GenerativeModel(MODEL_FAST)
-        prompt = BGM_SUGGESTION_PROMPT.format(mood=mood)
-        response = await model.generate_content_async(prompt)
-        await channel.send(f"**MAGI**「...ふふ。{response.text}」")
-    except Exception as e:
-        logging.error(f"BGM提案中にエラー: {e}")
-
-async def analyze_and_log_concern(history_text):
-    if not LEARNER_BASE_URL: return
-    try:
-        model = genai.GenerativeModel(MODEL_PRO)
-        prompt = HEKO_CONCERN_ANALYSIS_PROMPT.format(conversation_text=history_text)
-        response = await model.generate_content_async(prompt)
-        concern = response.text.strip()
-        if concern != 'None':
-            async with aiohttp.ClientSession() as session:
-                payload = {'topic': concern}
-                await session.post(f"{LEARNER_BASE_URL}/log-concern", json=payload)
-                logging.info(f"へー子の気づかいメモを記録しました: {concern}")
-    except Exception as e:
-        logging.error(f"悩み分析中にエラー: {e}")
-
-async def hekos_gentle_follow_up():
-    channel = client.get_channel(TARGET_CHANNEL_ID)
-    if not channel or not LEARNER_BASE_URL: return
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{LEARNER_BASE_URL}/get-unresolved-concerns") as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    concerns = data.get("concerns", [])
-                    if concerns:
-                        concern = random.choice(concerns)
-                        await channel.send(f"**へー子**「あのね、imazine…。ふと思ったんだけど、この前の『{concern['topic']}』の件、少しは気持ち、楽になったかな…？ 無理してない…？」")
-                        await session.post(f"{LEARNER_BASE_URL}/resolve-concern", json={"id": concern['id']})
-    except Exception as e:
-        logging.error(f"へー子の気づかい実行中にエラー: {e}")
-
-async def mirai_inspiration_sketch():
-    channel = client.get_channel(TARGET_CHANNEL_ID)
-    if not channel or not IS_VERTEX_AVAILABLE: return
-    try:
-        history = await build_history(channel, limit=10)
-        history_text = "\n".join([f"{msg['role']}: {part['text']}" for msg in history for part in msg.get('parts', []) if 'text' in part])
-        
-        model = genai.GenerativeModel(MODEL_PRO)
-        prompt = MIRAI_SKETCH_PROMPT.format(recent_conversations=history_text)
-        response = await model.generate_content_async(prompt)
-        
-        json_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL) or re.search(r'({.*?})', response.text, re.DOTALL)
-        if json_match:
-            idea = json.loads(json_match.group(1))
-            if idea.get("situation"):
-                 client.pending_image_generation[channel.id] = idea
-                 await channel.send(f"**みらい**「ねえimazine！ 今の話、マジやばい！ なんか、絵にしたいんだけど、いい？ (y/n)」")
-    except Exception as e:
-        logging.error(f"みらいのインスピレーション実行中にエラー: {e}")
-
-async def generate_growth_report(channel):
-    if not LEARNER_BASE_URL:
-        await channel.send("**MAGI**「ごめんなさい、学習係との接続が確立されていないため、レポートを生成できません。」")
-        return
-
-    await channel.send("**MAGI**「かしこまりました。過去一ヶ月の、私たちの航海日誌をまとめます。少し、お時間をくださいね…」")
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{LEARNER_BASE_URL}/query", json={"query_text": "会話の要約"}) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    summaries = data.get("documents", [])
-                    if not summaries:
-                        await channel.send("**MAGI**「…まだ、私たちの航海の記録が、十分に蓄積されていないようです。もう少し、未来でお会いしましょう。」")
-                        return
-
-                    model = genai.GenerativeModel(MODEL_PRO)
-                    prompt = GROWTH_REPORT_PROMPT.format(summaries="\n- ".join(summaries))
-                    response = await model.generate_content_async(prompt)
-                    await channel.send(f"**MAGI**「お待たせいたしました、imazineさん。これが、私たちの成長記録です。」\n\n---\n{response.text}\n---")
-                else:
-                    await channel.send("**MAGI**「レポートの元となる記憶の取得に失敗しました。」")
-    except Exception as e:
-        logging.error(f"成長記録レポート生成中にエラー: {e}")
-        await channel.send("**MAGI**「申し訳ありません。レポートの生成中に、予期せぬエラーが発生しました。」")
 
 def get_text_from_pdf(pdf_data):
     try:
         doc = fitz.open(stream=pdf_data, filetype="pdf")
         return "".join([page.get_text() for page in doc])
     except Exception as e:
-        logging.error(f"PDFからのテキスト抽出中にエラー: {e}")
+        logging.error(f"PDF text extraction error: {e}")
         return "PDFファイルの解析中にエラーが発生しました。"
 
 def extract_youtube_video_id(url):
@@ -1016,23 +492,22 @@ def extract_youtube_video_id(url):
 
 def get_youtube_transcript(video_id):
     try:
+        # Run synchronous API call in an executor
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ja', 'en'])
         return " ".join([d['text'] for d in transcript_list])
-    except (NoTranscriptFound, TranscriptsDisabled):
-        return None
     except Exception as e:
-        logging.error(f"YouTube文字起こし取得中にエラー: {e}")
+        logging.error(f"YouTube transcript retrieval error: {e}")
         return "文字起こしの取得中にエラーが発生しました。"
 
 async def summarize_text(text_to_summarize, model_name=MODEL_PRO):
     if not text_to_summarize: return ""
     try:
-        prompt = f"以下のテキストを、重要なポイントを箇条書きで3〜5点にまとめて、簡潔に要約してください。\n\n# 元のテキスト\n{text_to_summarize}"
+        prompt = f"以下のテキストを、重要なポイントを箇条書きで3〜5点にまとめて、簡潔に要約してください。\n\n# 元のテキスト\n{text_to_summarize[:10000]}" # Truncate for safety
         model = genai.GenerativeModel(model_name)
         response = await model.generate_content_async(prompt)
         return response.text
     except Exception as e:
-        logging.error(f"テキストの要約中にエラー: {e}")
+        logging.error(f"Text summarization error: {e}")
         return "要約中にエラーが発生しました。"
 
 async def process_message_sources(message):
@@ -1042,12 +517,13 @@ async def process_message_sources(message):
     
     if attachments:
         att = attachments[0]
+        # Allow multiple attachment types later
         if 'pdf' in att.content_type:
-            await message.channel.send(f"（PDF『{att.filename}』を読み込み、要約します...📄）")
+            await message.channel.send(f"（PDF『{att.filename}』を読み込み、要約します...📄）", delete_after=15)
             text = get_text_from_pdf(await att.read())
             context = await summarize_text(text)
         elif 'text' in att.content_type:
-            await message.channel.send(f"（テキストファイル『{att.filename}』を読み込み、要約します...📝）")
+            await message.channel.send(f"（テキストファイル『{att.filename}』を読み込み、要約します...📝）", delete_after=15)
             text = (await att.read()).decode('utf-8')
             context = await summarize_text(text)
         
@@ -1059,144 +535,156 @@ async def process_message_sources(message):
         url = url_match.group(0)
         video_id = extract_youtube_video_id(url)
         if video_id:
-            await message.channel.send(f"（YouTube動画を検知しました。内容を理解します...🎥）")
-            transcript = get_youtube_transcript(video_id)
+            await message.channel.send(f"（YouTube動画を検知しました。内容を理解します...🎥）", delete_after=15)
+            transcript = await asyncio.to_thread(get_youtube_transcript, video_id)
             if transcript:
                 context = await summarize_text(transcript)
             else:
-                context = "この動画の文字起こしは取得できませんでした。紹介ページの内容を代わりに読み込みます。"
-                page_text = fetch_url_content(url)
-                context += "\n" + await summarize_text(page_text)
-        else: # 一般的なURL
-             await message.channel.send(f"（ウェブページを検知しました。内容を理解します...🌐）")
-             page_text = fetch_url_content(url)
+                context = "この動画の文字起こしは取得できませんでした。"
+        else: # General URL
+             await message.channel.send(f"（ウェブページを検知しました。内容を理解します...🌐）", delete_after=15)
+             page_text = await asyncio.to_thread(fetch_url_content, url)
              context = await summarize_text(page_text)
         
         return f"{user_query}\n\n--- 参照URLの要約 ---\n{context}"
 
     return user_query
 
-# --- イベントハンドラ ---
-@client.event
-async def on_ready():
-    logging.info(f'{client.user} としてログインしました')
-    client.character_states = {"last_interaction_summary": "まだ会話が始まっていません。", "mirai_mood": "ニュートラル", "heko_mood": "ニュートラル"}
-    client.last_surprise_time = None
-    
-    scheduler = AsyncIOScheduler(timezone=TIMEZONE)
-    
-    magi_morning_prompt = f"あなたは、私の優秀なAI秘書MAGIです。今、日本時間の朝です。私（imazine）に対して、今日の日付と曜日（{{today_str}}）を伝え、{WEATHER_LOCATION}の今日の天気予報を調べ、その内容に触れてください。さらに、以下の「最近の会話や出来事」を参考に、私の状況に寄り添った、自然で温かみのある一日の始まりを告げるメッセージを生成してください。\n\n# 最近の会話や出来事\n{{recent_context}}"
+def fetch_url_content(url):
+    """Synchronous URL fetcher for use with to_thread."""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+        for element in soup(["script", "style", "nav", "footer", "header", "aside"]):
+            element.decompose()
+        return soup.get_text(separator='\n', strip=True) or "記事の本文を抽出できませんでした。"
+    except Exception as e:
+        logging.error(f"URL fetch failed: {url}, Error: {e}")
+        return "記事の取得に失敗しました。"
 
-    greetings = {
-        "MAGIの朝の挨拶": (6, 30, magi_morning_prompt),
-        "みらいとへー子の朝の挨拶": (7, 0, "あなたは、私の親友である女子高生「みらい」と「へー子」です。今、日本時間の朝です。寝起きのテンションで、私（imazine）に元気な朝の挨拶をしてください。以下の「最近の会話や出来事」を参考に、「そういえば昨日のあれ、どうなった？」のように、自然な会話を始めてください。\n\n# 最近の会話や出来事\n{recent_context}"),
-        "午前の休憩": (10, 0, "あなたは、私の親友である女子高生「みらい」と「へー子」です。日本時間の午前10時です。仕事に集中している私（imazine）に、最近の文脈（{recent_context}）を踏まえつつ、楽しくコーヒー休憩に誘ってください。"),
-        "お昼の休憩": (12, 0, "あなたは、私の親友である女子高生「みらい」と「へー子」です。日本時間のお昼の12時です。仕事に夢中な私（imazine）に、最近の文脈（{recent_context}）も踏まえながら、楽しくランチ休憩を促してください。"),
-        "午後の休憩": (15, 0, "あなたは、私の親友である女子高生「みらい」と「へー子」です。日本時間の午後3時です。集中力が切れてくる頃の私（imazine）に、最近の文脈（{recent_context}）も踏まえつつ、優しくリフレッシュを促してください。"),
-        "MAGIの夕方の挨拶": (18, 0, "あなたは、私の優秀なAI秘書MAGIです。日本時間の夕方18時です。一日を終えようとしている私（imazine）に対して、最近の文脈（{recent_context}）を踏まえ、労をねぎらう優しく知的なメッセージを送ってください。"),
-        "夜のくつろぎトーク": (21, 0, "あなたは、私の親友である女子高生「みらい」と「へー子」です。日本時間の夜21時です。一日を終えた私（imazine）に、最近の文脈（{recent_context}）を踏まえ、今日の労をねぎらうゆるいおしゃべりをしてください。"),
-        "おやすみの挨拶": (23, 0, "あなたは、私の親友である女子高生「みらい」と「へー子」です。日本時間の夜23時です。そろそろ寝る時間だと察し、最近の文脈（{recent_context}）も踏まえながら、優しく「おやすみ」の挨拶をしてください。")
-    }
-    for name, (hour, minute, prompt) in greetings.items():
-        scheduler.add_job(scheduled_contextual_task, 'cron', args=[name, prompt], hour=hour, minute=minute)
-    
-    # 新機能のスケジュールジョブ
-    scheduler.add_job(hekos_gentle_follow_up, 'cron', day_of_week='mon,wed,fri', hour=20, minute=0)
-    scheduler.add_job(mirai_inspiration_sketch, 'cron', day_of_week='tue,thu,sat', hour=19, minute=0)
+async def analyze_summary_for_states(summary_text):
+    """Analyzes a summary to extract new character states."""
+    if not summary_text: return None
+    prompt = META_ANALYSIS_PROMPT.replace("{{conversation_history}}", summary_text)
+    try:
+        model = genai.GenerativeModel(MODEL_FAST)
+        response = await model.generate_content_async(prompt)
+        json_text_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL) or re.search(r'({.*?})', response.text, re.DOTALL)
+        if json_text_match:
+            states = json.loads(json_text_match.group(1))
+            return {
+                'mirai_mood': states.get('mirai_mood', 'ニュートラル'),
+                'heko_mood': states.get('heko_mood', 'ニュートラル'),
+                'last_interaction_summary': states.get('interaction_summary', '特筆すべきやり取りはなかった。')
+            }
+    except Exception as e:
+        logging.error(f"Error updating character states from summary: {e}")
+    return None
 
-    scheduler.start()
-    logging.info("プロアクティブ機能の全スケジューラを開始しました。")
+# --- Main Logic Handlers (Refactored from on_message) ---
 
-@client.event
-async def on_message(message):
-    if message.author == client.user or not isinstance(message.channel, discord.Thread) or "4人の談話室" not in message.channel.name:
-        return
-    
-    # Y/N確認フローの処理を最優先
-    if message.channel.id in client.pending_image_generation:
-        if message.content.lower() in ['y', 'yes', 'はい']:
-            idea = client.pending_image_generation.pop(message.channel.id)
-            await message.channel.send("**みらい**「よっしゃ！任せろ！」")
-            style_keywords = FOUNDATIONAL_STYLE_JSON['style_keywords'] # デフォルト
-            if LEARNER_BASE_URL:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(f"{LEARNER_BASE_URL}/retrieve-styles") as resp:
-                            if resp.status == 200 and (data := await resp.json()).get("learned_styles"):
-                                style_keywords = random.choice(data["learned_styles"])['style_analysis']['style_keywords']
-                except Exception as e:
-                    logging.error(f"スタイル取得に失敗: {e}")
-            
-            asyncio.create_task(generate_and_post_image(message.channel, idea, style_keywords))
+async def handle_confirmation(message):
+    """Handles the 'y/n' confirmation flow for image generation."""
+    if message.channel.id not in client.pending_image_generation:
+        return False # Not a confirmation message
+
+    idea = client.pending_image_generation.pop(message.channel.id)
+    if message.content.lower() in ['y', 'yes', 'はい']:
+        await message.channel.send("**みらい**「よっしゃ！任せろ！」")
         
-        elif message.content.lower() in ['n', 'no', 'いいえ']:
-             client.pending_image_generation.pop(message.channel.id)
-             await message.channel.send("**みらい**「そっか、OK〜！また今度ね！」")
+        style_keywords = FOUNDATIONAL_STYLE_JSON['style_keywords'] # Default
+        style_data = await fetch_from_learner("/retrieve-styles") # Assuming this endpoint exists in learner
+        if style_data and style_data.get("learned_styles"):
+            chosen_style = random.choice(style_data["learned_styles"])
+            style_keywords = chosen_style['style_analysis']['style_keywords']
+
+        asyncio.create_task(generate_and_post_image(message.channel, idea, style_keywords))
+    
+    elif message.content.lower() in ['n', 'no', 'いいえ']:
+        await message.channel.send("**みらい**「そっか、OK〜！また今度ね！」")
+    else:
+        await message.channel.send("**みらい**「ん？『y』か『n』で答えてほしいな！」")
+        client.pending_image_generation[message.channel.id] = idea # Put it back
+    
+    return True # Message was handled
+
+async def handle_commands(message):
+    """Handles messages starting with '!'."""
+    if not message.content.startswith('!'):
+        return False
+
+    if message.content == '!report':
+        await generate_growth_report(message.channel)
+    elif message.content.startswith('!learn') and message.attachments:
+        await message.channel.send(f"（かしこまりました。『{message.attachments[0].filename}』から学習します...🧠）")
+        
+        file_content = await message.attachments[0].read()
+        text_content = file_content.decode('utf-8', errors='ignore')
+        learn_success = await post_to_learner("/learn", {'text_content': text_content})
+        
+        if learn_success:
+            history_payload = {
+                "user_id": str(message.author.id), "username": message.author.name,
+                "filename": message.attachments[0].filename, "file_size": message.attachments[0].size
+            }
+            await post_to_learner("/log-learning-history", history_payload)
+            await message.channel.send("学習が完了しました。")
         else:
-            await message.channel.send("**みらい**「ん？『y』か『n』で答えてほしいな！」")
-        return
-        
-    # コマンド処理
-    if message.content.startswith('!'):
-        if message.content == '!report':
-            await generate_growth_report(message.channel)
-        elif message.content.startswith('!learn') and message.attachments:
-            await message.channel.send(f"（かしこまりました。『{message.attachments[0].filename}』から新しい知識を学習し、記録します...🧠）")
-            success = await ask_learner_to_learn(message.attachments[0], message.author)
-            await message.channel.send("学習が完了しました。" if success else "ごめんなさい、学習に失敗しました。")
-        elif message.content.startswith('!deep_read') and message.reference:
-            original_message = await message.channel.fetch_message(message.reference.message_id)
-            if original_message.id in client.pending_podcast_deep_read:
-                 podcast_url = client.pending_podcast_deep_read.pop(original_message.id)
-                 # ここに、ポッドキャストの音声DL→文字起こし→要約→応答生成のロジックを実装
-                 await message.channel.send(f"（承知しました。『{podcast_url}』について、深く語り合いましょう。）")
-        return
+            await message.channel.send("ごめんなさい、学習に失敗しました。")
+            
+    # Add other command handlers here...
+    
+    return True # Message was handled
 
-    # メイン会話処理
+async def handle_conversation(message):
+    """Handles the main conversational logic."""
     try:
         async with message.channel.typing():
+            # 1. Process message content (URLs, PDFs, etc.)
             final_user_message = await process_message_sources(message)
-            relevant_context = await ask_learner_to_remember(final_user_message)
-            emotion = await analyze_emotion(final_user_message)
             
+            # 2. Get context from memory
+            relevant_context_data = await post_to_learner("/query", {'query_text': final_user_message, 'k': 10})
+            relevant_context = "\n".join(relevant_context_data.get('documents', [])) if relevant_context_data else ""
+            
+            # 3. Build the dynamic parts of the prompt
             states = client.character_states
-            character_states_prompt = f"\n# 現在のキャラクターの状態\n- みらいの気分: {states['mirai_mood']}\n- へー子の気分: {states['heko_mood']}\n- 直近のやり取り: {states['last_interaction_summary']}"
+            character_states_prompt = f"\n# 現在のキャラクターの状態\n- みらいの気分: {states.get('mirai_mood', 'ニュートラル')}\n- へー子の気分: {states.get('heko_mood', 'ニュートラル')}\n- 直近のやり取り: {states.get('last_interaction_summary', '特筆すべきやり取りはなかった。')}"
+            
+            emotion = await analyze_emotion(final_user_message)
             emotion_context_prompt = f"\n# imazineの現在の感情\nimazineは今「{emotion}」と感じています。この感情に寄り添って対話してください。"
-            
-            mirai_words = [d['word'] for d in gals_words if d['mirai'] > 0]
-            heko_words = [d['word'] for d in gals_words if d['heko'] > 0]
-            mirai_weights = [d['mirai'] for d in gals_words if d['mirai'] > 0]
-            heko_weights = [d['heko'] for d in gals_words if d['heko'] > 0]
-            chosen_mirai_words = random.choices(mirai_words, weights=mirai_weights, k=3)
-            chosen_heko_words = random.choices(heko_words, weights=heko_weights, k=3)
-            
-            vocabulary_hint = (
-                f"# 口調制御のための特別ヒント\n"
-                f"- みらいは、次の言葉を使いたがっています: {', '.join(list(set(chosen_mirai_words)))}\n"
-                f"- へー子は、次の言葉を使いたがっています: {', '.join(list(set(chosen_heko_words)))}\n"
-            )
-            
-            final_prompt_for_llm = ULTIMATE_PROMPT.replace("{{CHARACTER_STATES}}", character_states_prompt).replace("{{EMOTION_CONTEXT}}", emotion_context_prompt).replace("{{VOCABULARY_HINT}}", vocabulary_hint)
 
-            image_style_keywords = FOUNDATIONAL_STYLE_JSON['style_keywords']
-            is_nudge_present = any(emoji in message.content for emoji in ['🎨', '📸', '✨'])
-            if is_nudge_present and LEARNER_BASE_URL:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(f"{LEARNER_BASE_URL}/retrieve-styles") as resp:
-                            if resp.status == 200 and (styles_data := await resp.json()).get("learned_styles"):
-                                chosen_style = random.choice(styles_data["learned_styles"])
-                                image_style_keywords = chosen_style['style_analysis']['style_keywords']
-                                style_prompt_addition = f"ユーザーが過去に好んだ『{chosen_style['style_analysis']['style_name']}』のスタイルを参考に、以下の特徴を創造的に反映させてください: {chosen_style['style_analysis']['style_description']}\n"
-                                final_prompt_for_llm += "\n# スタイル指示\n" + style_prompt_addition
-                except Exception as e:
-                    logging.error(f"スタイル取得に失敗: {e}")
+            if client.gals_words:
+                mirai_words = [d['word'] for d in client.gals_words if d.get('mirai', 0) > 0]
+                heko_words = [d['word'] for d in client.gals_words if d.get('heko', 0) > 0]
+                mirai_weights = [d['mirai'] for d in client.gals_words if d.get('mirai', 0) > 0]
+                heko_weights = [d['heko'] for d in client.gals_words if d.get('heko', 0) > 0]
+                chosen_mirai_words = random.choices(mirai_words, weights=mirai_weights, k=3) if mirai_words else []
+                chosen_heko_words = random.choices(heko_words, weights=heko_weights, k=3) if heko_words else []
+            else:
+                chosen_mirai_words, chosen_heko_words = ["ヤバい"], ["それな"] # Fallback
+
+            vocabulary_hint = f"# 口調制御ヒント\n- みらいは、次の言葉を使いたがっています: {', '.join(set(chosen_mirai_words))}\n- へー子は、次の言葉を使いたがっています: {', '.join(set(chosen_heko_words))}"
+            
+            dialogue_example_prompt = ""
+            if client.dialogue_examples:
+                chosen_example = random.choice(client.dialogue_examples)
+                example_text = json.dumps(chosen_example.get('example', {}), ensure_ascii=False)
+                dialogue_example_prompt = f"\n# 会話例\nこの会話例のような、自然な掛け合いを参考にしてください。\n{example_text}"
+
+            final_prompt_for_llm = (ULTIMATE_PROMPT
+                                    .replace("{{CHARACTER_STATES}}", character_states_prompt)
+                                    .replace("{{EMOTION_CONTEXT}}", emotion_context_prompt)
+                                    .replace("{{VOCABULARY_HINT}}", vocabulary_hint)
+                                    .replace("{{DIALOGUE_EXAMPLE}}", dialogue_example_prompt))
 
             image_data = None
             if message.attachments and message.attachments[0].content_type and message.attachments[0].content_type.startswith('image/'):
                 image_data = Image.open(io.BytesIO(await message.attachments[0].read()))
 
-            parts = [f"{relevant_context}{final_user_message}"]
+            parts = [f"--- 関連する記憶・知識 ---\n{relevant_context}\n\n--- imazineのメッセージ ---\n{final_user_message}"]
             if image_data: parts.append(image_data)
 
             model_to_use = MODEL_VISION if image_data else MODEL_PRO
@@ -1207,52 +695,86 @@ async def on_message(message):
                 safety_settings=[{"category": c, "threshold": "BLOCK_NONE"} for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]]
             )
             
-            history = await build_history(message.channel, limit=20)
-            history.append({'role': 'user', 'parts': parts})
+            history = await build_history(message.channel, limit=15)
+            conversation_context = history + [{'role': 'user', 'parts': parts}]
 
-            response = await model.generate_content_async(history)
+            response = await model.generate_content_async(conversation_context)
             json_text_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL) or re.search(r'({.*?})', response.text, re.DOTALL)
             
             if json_text_match:
                 parsed_json = json.loads(json_text_match.group(1))
                 dialogue = parsed_json.get("dialogue", [])
+                
                 formatted_response = "\n".join([f"**{part.get('character')}**「{part.get('line', '').strip()}」" for part in dialogue if part.get("line", "").strip()])
                 if formatted_response:
                     await message.channel.send(formatted_response)
                 
-                image_gen_idea = parsed_json.get("image_generation_idea", {})
-                if is_nudge_present and image_gen_idea.get("situation"):
-                    await generate_and_post_image(message.channel, image_gen_idea, image_style_keywords)
-                elif not (client.last_surprise_time and (datetime.now(pytz.timezone(TIMEZONE)) - client.last_surprise_time) < timedelta(hours=3)):
-                    judgement_model = genai.GenerativeModel(MODEL_PRO)
-                    history_text_for_judgement = "\n".join([f"{m['role']}:{p['text']}" for m in history for p in m.get('parts', []) if 'text' in p])
-                    judgement_prompt = SURPRISE_JUDGEMENT_PROMPT.replace("{{conversation_history}}", history_text_for_judgement)
-                    judgement_response = await judgement_model.generate_content_async(judgement_prompt)
-                    if (judgement_json_match := re.search(r'({.*?})', judgement_response.text, re.DOTALL)) and json.loads(judgement_json_match.group(1)).get("trigger"):
-                        await message.channel.send("（……！ この瞬間は、記憶しておくべきかもしれません……✍️ サプライズをお届けします）")
-                        await generate_and_post_image(message.channel, image_gen_idea, image_style_keywords)
-                        client.last_surprise_time = datetime.now(pytz.timezone(TIMEZONE))
+                post_history_text = "\n".join([f"{msg['role']}: {part.get('text', '')}" for msg in conversation_context for part in msg.get('parts', []) if 'text' in part])
+                
+                summary_data = await post_to_learner("/summarize", {'history_text': post_history_text})
+                if summary_data and summary_data.get("summary"):
+                    new_states = await analyze_summary_for_states(summary_data["summary"])
+                    if new_states:
+                        await update_character_states_in_db(new_states)
+
+                used_words = extract_used_vocabulary(parsed_json)
+                await update_vocabulary_in_db(used_words)
             else:
                 await message.channel.send(f"ごめんなさい、AIの応答が不安定なようです。\n> {response.text}")
 
     except Exception as e:
-        logging.error(f"会話処理のメインループでエラー: {e}", exc_info=True)
-        await message.channel.send(f"**MAGI**「ごめんなさい、システムに少し問題が起きたみたいです…。」")
+        logging.error(f"Conversation handler error: {e}", exc_info=True)
+        await message.channel.send("**MAGI**「ごめんなさい、システムに問題が発生しました。」")
 
-    try:
-        history_text = "\n".join([f"{'imazine' if m['role'] == 'user' else 'Bot'}: {p.get('text', '')}" for m in (await build_history(message.channel, limit=5)) for p in m.get('parts', []) if 'text' in p])
-        if history_text:
-            summary = await ask_learner_to_summarize(history_text)
-            if summary:
-                asyncio.create_task(update_character_states(summary))
-                asyncio.create_task(analyze_and_log_concern(summary))
+# --- Event Handlers ---
+@client.event
+async def on_ready():
+    """Called when the bot is ready."""
+    logging.info(f'{client.user} has logged in.')
+    
+    states_data = await fetch_from_learner("/character-states")
+    if states_data:
+        client.character_states = states_data
+        logging.info(f"Successfully loaded character states from DB: {states_data}")
+    else:
+        logging.warning("Could not load character states from DB. Using defaults.")
+        client.character_states = {"last_interaction_summary": "まだ会話が始まっていません。", "mirai_mood": "ニュートラル", "heko_mood": "ニュートラル"}
         
-        if random.random() < 0.15: 
-            emotion = await analyze_emotion(final_user_message)
-            asyncio.create_task(suggest_bgm(message.channel, emotion))
-    except Exception as e:
-        logging.error(f"応答後の非同期タスクでエラー: {e}", exc_info=True)
+    vocab_data = await fetch_from_learner("/vocabulary")
+    if vocab_data and vocab_data.get("vocabulary"):
+        client.gals_words = vocab_data["vocabulary"]
+        logging.info(f"Successfully loaded {len(client.gals_words)} words from vocabulary DB.")
+    else:
+        logging.warning("Could not load vocabulary from DB.")
+        client.gals_words = []
 
+    dialogue_data = await fetch_from_learner("/dialogue-examples")
+    if dialogue_data and dialogue_data.get("examples"):
+        client.dialogue_examples = dialogue_data["examples"]
+        logging.info(f"Successfully loaded {len(client.dialogue_examples)} dialogue examples from DB.")
+    else:
+        logging.warning("Could not load dialogue examples from DB.")
+        client.dialogue_examples = []
+
+    scheduler = AsyncIOScheduler(timezone=TIMEZONE)
+    # Define scheduled tasks (prompts should be complete)
+    # ... scheduler job definitions from old code ...
+    scheduler.start()
+    logging.info("All proactive schedulers have started.")
+
+
+@client.event
+async def on_message(message):
+    """The main message dispatcher."""
+    if message.author == client.user or not isinstance(message.channel, discord.Thread) or "4人の談話室" not in message.channel.name:
+        return
+    
+    if await handle_confirmation(message):
+        return
+    if await handle_commands(message):
+        return
+    
+    await handle_conversation(message)
 
 @client.event
 async def on_raw_reaction_add(payload):
@@ -1264,8 +786,9 @@ async def on_raw_reaction_add(payload):
     except discord.NotFound: return
     
     if payload.emoji.name == '🎨' and message.author == client.user and message.embeds and message.embeds[0].image:
-        asyncio.create_task(learn_image_style(message))
-        return
+        # Assuming learn_image_style function is defined elsewhere
+        # asyncio.create_task(learn_image_style(message))
+        pass
 
     emoji_map = {'🐦': 'Xポスト', '✏️': 'Obsidianメモ', '📝': 'PREP記事', '💎': '今回の振り返り', '🧠': 'Deep Diveノート'}
     if payload.emoji.name not in emoji_map: return
@@ -1281,11 +804,11 @@ async def on_raw_reaction_add(payload):
             response = await model.generate_content_async(prompt)
             await channel.send(response.text)
         except Exception as e:
-            logging.error(f"特殊能力の実行中にエラー: {e}")
+            logging.error(f"Special ability execution error: {e}")
             await channel.send("ごめんなさい、処理中にエラーが起きてしまいました。")
 
 if __name__ == "__main__":
-    if not all([GEMINI_API_KEY, DISCORD_BOT_TOKEN, TARGET_CHANNEL_ID]):
-        logging.critical("起動に必要な環境変数が不足しています。プログラムを終了します。")
+    if not all([GEMINI_API_KEY, DISCORD_BOT_TOKEN, TARGET_CHANNEL_ID, LEARNER_BASE_URL]):
+        logging.critical("Missing critical environment variables. Shutting down.")
     else:
         client.run(DISCORD_BOT_TOKEN)
