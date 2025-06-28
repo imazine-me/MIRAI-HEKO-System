@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
             query_name="match_documents",
         )
         lifespan_context["text_splitter"] = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
-        lifespan_context["genai_model"] = genai.GenerativeModel('gemini-1.5-pro-latest')
+        lifespan_context["genai_model"] = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
 
         logging.info("全ての初期化処理が完了。学習係は正常です。")
 
@@ -84,7 +84,7 @@ async def learn(request: TextContent):
 
         # ★★★ 新機能：学習内容の「タイトル（要約）」を自動生成して保存 ★★★
         summary_prompt = f"以下のテキスト全体の、最も重要なテーマや主題を、30文字程度の、非常に簡潔な「タイトル」にしてください。\n\n# テキスト\n{request.text_content[:2000]}"
-        summary_model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        summary_model = genai.GenerativeModel('gemini-2.0-flash')
         summary_response = await summary_model.generate_content_async(summary_prompt)
         summary_text = summary_response.text.strip()
         
@@ -109,7 +109,7 @@ async def query(request: Query):
 @app.post("/summarize")
 async def summarize(request: SummarizeRequest):
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         prompt = f"以下の会話履歴を、次の会話で参照しやすいように、重要なキーワードや出来事を箇条書きで簡潔に要約してください。\n\n# 会話履歴\n{request.history_text}"
         response = await model.generate_content_async(prompt)
         summary_text = response.text.strip()
