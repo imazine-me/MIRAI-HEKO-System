@@ -1,14 +1,15 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.5.8 - The Final Genesis)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.6.0 - The Direct Soul)
 import os
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import List
+
 import google.generativeai as genai
-from supabase.client import create_client
+from supabase.client import Client, create_client
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_community.vectorstores import SupabaseVectorStore
 from langchain.text_splitter import CharacterTextSplitter
 from dotenv import load_dotenv
 
@@ -38,12 +39,6 @@ async def lifespan(app: FastAPI):
         
         lifespan_context["embeddings"] = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=gemini_api_key)
         
-        lifespan_context["vectorstore"] = SupabaseVectorStore(
-            client=lifespan_context["supabase_client"],
-            embedding=lifespan_context["embeddings"],
-            table_name="documents",
-            query_name="match_documents",
-        )
         lifespan_context["text_splitter"] = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
         lifespan_context["genai_model"] = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
 
@@ -98,10 +93,25 @@ async def learn(request: TextContent):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/query")
-async def query(request: Query):
+async def query(request: QueryRequest):
+    if "embeddings" not in lifespan_context or "supabase_client" not in lifespan_context:
+        raise HTTPException(status_code=500, detail="Embeddings or Supabase client not initialized")
     try:
-        docs = lifespan_context["vectorstore"].similarity_search(request.query_text, k=5)
-        return {"documents": [doc.page_content for doc in docs]}
+        query_embedding = lifespan_context["embeddings"].embed_query(request.query_text)
+        
+        # ★★★ LangChainに頼らず、直接RPCを呼び出す ★★★
+        res = lifespan_context["supabase_client"].rpc(
+            'match_documents',
+            {
+                'query_embedding': query_embedding,
+                'match_count': request.k,
+                'filter': request.filter if request.filter else {}
+            }
+        ).execute()
+
+        docs = [item['content'] for item in res.data]
+        logging.info(f"問い合わせ「{request.query_text}」に対して{len(docs)}件の情報を返しました。")
+        return {"documents": docs}
     except Exception as e:
         logging.error(f"Error in /query: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
