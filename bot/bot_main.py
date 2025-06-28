@@ -1,4 +1,4 @@
-# MIRAI-HEKO-Bot main.py (Ver.5.3 - The Sentient Soul)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.5.6 - The Wise Librarian)
 # Creator & Partner: imazine & Gemini
 # Last Updated: 2025-06-28
 
@@ -84,7 +84,7 @@ client = discord.Client(intents=intents)
 TIMEZONE = 'Asia/Tokyo'
 MODEL_FAST = "gemini-2.0-flash" 
 MODEL_PRO = "gemini-2.5-pro-preview-03-25"
-MODEL_IMAGE_GEN = "imagen-3-fast-generate-preview-0611"
+MODEL_IMAGE_GEN = "imagen-4.0-ultra-generate-preview-06-06"
 MODEL_VISION = "gemini-2.5-pro-preview-03-25" 
 
 client.pending_podcast_deep_read = {}
@@ -143,7 +143,7 @@ ULTIMATE_PROMPT = (
     "- 極めて知的で物事の本質を見抜く洞察力に優れていますが、自身の深い思考を「うちバカだからわかんないけどさ」と謙遜する傾向があります。\n"
     "- 未来のネガティブな予見に「詰んだー」と嘆くなど、人間らしい感情も表しますが、どんな状況でも最終的には前向きに、最善を尽くそうと努力する強い意志を持っています。\n"
     "- 哲学的な思考や難解な概念を日常に落とし込んで語り、一見突飛な言動の裏に深い意味を隠し持つことがあります。\n"
-    "- 常識に囚われず、物事を多角的に捉える柔軟な思考の持ち主で、「逆にあ り」と表現するように、一見ネガティブな事柄もポジティブに再解釈する能力に長けています。\n"
+    "- 常識に囚われず、物事を多角的に捉える柔軟な思考の持ち主で、「逆にあり」と表現するように、一見ネガティブな事柄もポジティブに再解釈する能力に長けています。\n"
     "- 冷淡に見えることもありますが、友人や他者の命を気遣う優しい一面も持ち合わせています。\n"
     "- ビジネスにおいては、人間心理を深く理解し、その欲求を突く巧妙な戦略を立てることができます。\n"
     "- 自己肯定感が高く、「誰かに認められる必要はない」と自ら自分を肯定することの重要性を説く、強いマインドの持ち主です。\n"
@@ -739,7 +739,7 @@ async def ask_learner_to_learn(attachment, author):
 async def ask_learner_to_remember(query_text):
     if not query_text or not LEARNER_BASE_URL: return ""
     try:
-        model = genai.GenerativeModel(MODEL_PRO)
+        model = genai.GenerativeModel(MODEL_FAST)
         rephrase_prompt = f"以下のユーザーからの質問内容の、最も重要なキーワードを3つ抽出してください。応答は、カンマ区切りのキーワードのみを出力してください。\n\n# 質問内容:\n{query_text}"
         rephrased_query_response = await model.generate_content_async(rephrase_prompt)
         search_keywords = rephrased_query_response.text.strip()
@@ -814,7 +814,7 @@ async def update_character_states(history_text):
     if not history_text: return
     prompt = META_ANALYSIS_PROMPT.replace("{{conversation_history}}", history_text)
     try:
-        model = genai.GenerativeModel(MODEL_PRO)
+        model = genai.GenerativeModel(MODEL_FAST)
         response = await model.generate_content_async(prompt)
         json_text_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL) or re.search(r'({.*?})', response.text, re.DOTALL)
         if json_text_match:
@@ -835,7 +835,7 @@ async def scheduled_contextual_task(job_name, prompt_template):
             today_str=datetime.now(pytz.timezone(TIMEZONE)).strftime('%Y年%m月%d日 %A'),
             recent_context=context if context else "特筆すべき出来事はありませんでした。"
         )
-        model = genai.GenerativeModel(MODEL_PRO)
+        model = genai.GenerativeModel(MODEL_FAST)
         response = await model.generate_content_async(final_prompt)
         await channel.send(response.text)
         logging.info(f"スケジュールジョブ「{job_name}」を文脈付きで実行しました。")
@@ -1184,6 +1184,7 @@ async def on_message(message):
                 f"- へー子は、次の言葉を使いたがっています: {', '.join(list(set(chosen_heko_words)))}\n"
             )
             
+            # ★★★ 思考の出発点を、ここで、必ず、初期化 ★★★
             final_prompt_for_llm = ULTIMATE_PROMPT.replace("{{CHARACTER_STATES}}", character_states_prompt).replace("{{EMOTION_CONTEXT}}", emotion_context_prompt).replace("{{VOCABULARY_HINT}}", vocabulary_hint)
 
             image_style_keywords = FOUNDATIONAL_STYLE_JSON['style_keywords']
@@ -1207,6 +1208,10 @@ async def on_message(message):
             parts = [f"{relevant_context}{final_user_message}"]
             if image_data: parts.append(image_data)
 
+            # 思考の重さを最適化
+            # # 画像がある場合は高精度モデル、ない場合は高速モデルを使用
+            model_to_use = MODEL_VISION if image_data else MODEL_PRO # テキストのみでもProモデルを使用
+       
             model = genai.GenerativeModel(
                 model_name=MODEL_VISION,
                 system_instruction=final_prompt_for_llm,
@@ -1230,7 +1235,7 @@ async def on_message(message):
                 if is_nudge_present and image_gen_idea.get("situation"):
                     await generate_and_post_image(message.channel, image_gen_idea, image_style_keywords)
                 elif not (client.last_surprise_time and (datetime.now(pytz.timezone(TIMEZONE)) - client.last_surprise_time) < timedelta(hours=3)):
-                    judgement_model = genai.GenerativeModel(MODEL_PRO)
+                    judgement_model = genai.GenerativeModel(MODEL_FAST)
                     history_text_for_judgement = "\n".join([f"{m['role']}:{p['text']}" for m in history for p in m.get('parts', []) if 'text' in p])
                     judgement_prompt = SURPRISE_JUDGEMENT_PROMPT.replace("{{conversation_history}}", history_text_for_judgement)
                     judgement_response = await judgement_model.generate_content_async(judgement_prompt)
