@@ -279,7 +279,6 @@ TRANSCRIPTION_PROMPT = "この音声ファイルの内容を、一字一句正�
 EMOTION_ANALYSIS_PROMPT = "以下のimazineの発言テキストから、彼の現在の感情を分析し、最も的確なキーワード（例：喜び、疲れ、創造的な興奮、悩み、期待、ニュートラルなど）で、単語のみで答えてください。"
 
 # --- 関数群 ---
-
 async def ask_learner_to_learn(attachment):
     if not LEARNER_BASE_URL: return False
     try:
@@ -522,11 +521,7 @@ async def on_message(message):
     response_generated = False
     try:
         async with message.channel.typing():
-            # ★★★ 記憶検索の改善 (ver.13.0) ★★★
-            # ユーザーのメッセージ全体を使って、より豊かなキーワードで記憶を検索する
-            query_for_learner = message.content
-            relevant_context = await ask_learner_to_remember(query_for_learner)
-            
+            relevant_context = await ask_learner_to_remember(message.content)
             emotion = await analyze_emotion(message.content)
             
             states = client.character_states
