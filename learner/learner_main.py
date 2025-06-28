@@ -1,11 +1,11 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.5.3 - The Perfect Chronicle)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.5.4 - The Final Key)
 import os
 import logging
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List
 
 import google.generativeai as genai
 from supabase.client import Client, create_client
@@ -18,52 +18,39 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- グローバルコンテキスト ---
 lifespan_context = {}
 
-# --- FastAPIのライフサイクル管理 ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info("学習係のライフサイクルが開始します...")
     try:
-        supabase_url = os.environ.get("SUPABASE_URL")
-        supabase_key = os.environ.get("SUPABASE_KEY")
-        if not supabase_url or not supabase_key:
-            raise ValueError("Supabaseの環境変数が設定されていません。")
+        supabase_url = get_env_variable("SUPABASE_URL")
+        supabase_key = get_env_variable("SUPABASE_KEY")
+        gemini_api_key = get_env_variable("GEMINI_API_KEY")
 
         lifespan_context["supabase_client"] = create_client(supabase_url, supabase_key)
-        logging.info("Supabaseクライアントの初期化に成功しました。")
-
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
-        if not gemini_api_key:
-            raise ValueError("Gemini APIキーが設定されていません。")
         genai.configure(api_key=gemini_api_key)
-
-        lifespan_context["embeddings"] = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-        logging.info("GoogleGenerativeAIEmbeddingsの初期化に成功しました。")
-
+        
+        # ★★★ ここが最重要修正点 ★★★
+        # LangChainのモジュールに、直接、APIキーを渡します。
+        lifespan_context["embeddings"] = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=gemini_api_key)
+        
         lifespan_context["vectorstore"] = SupabaseVectorStore(
             client=lifespan_context["supabase_client"],
             embedding=lifespan_context["embeddings"],
             table_name="documents",
             query_name="match_documents",
         )
-        logging.info("SupabaseVectorStoreの初期化に成功しました。")
+        lifespan_context["text_splitter"] = CharacterTextSplitter(separator="\n\n", chunk_size=500, chunk_overlap=50)
+        lifespan_context["genai_model"] = genai.GenerativeModel('gemini-1.5-pro-latest')
 
-        lifespan_context["text_splitter"] = CharacterTextSplitter(
-            separator="\n\n",
-            chunk_size=500,
-            chunk_overlap=50,
-            length_function=len,
-        )
-        logging.info("TextSplitterの初期化に成功しました。")
+        logging.info("全ての初期化処理が完了。学習係は正常です。")
 
     except Exception as e:
         logging.critical(f"学習係の初期化中に致命的なエラーが発生しました: {e}", exc_info=True)
-        # ここでアプリケーションを停止させるか、エラー状態を保持するか検討
-
+    
     yield
-
+    
     logging.info("学習係のライフサイクルが終了します。")
     lifespan_context.clear()
 
