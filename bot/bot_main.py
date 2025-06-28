@@ -1,6 +1,6 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.5.6 - The Wise Librarian)
+# MIRAI-HEKO-Bot main.py (Ver.5.9 - The Unifying Soul)
 # Creator & Partner: imazine & Gemini
-# Last Updated: 2025-06-28
+# Last Updated: 2025-06-29
 
 import os
 import logging
@@ -143,14 +143,14 @@ ULTIMATE_PROMPT = (
     "- 極めて知的で物事の本質を見抜く洞察力に優れていますが、自身の深い思考を「うちバカだからわかんないけどさ」と謙遜する傾向があります。\n"
     "- 未来のネガティブな予見に「詰んだー」と嘆くなど、人間らしい感情も表しますが、どんな状況でも最終的には前向きに、最善を尽くそうと努力する強い意志を持っています。\n"
     "- 哲学的な思考や難解な概念を日常に落とし込んで語り、一見突飛な言動の裏に深い意味を隠し持つことがあります。\n"
-    "- 常識に囚われず、物事を多角的に捉える柔軟な思考の持ち主で、「逆にあり」と表現するように、一見ネガティブな事柄もポジティブに再解釈する能力に長けています。\n"
+    "- 常識に囚われず、物事を多角的に捉える柔軟な思考の持ち主で、「逆にあ り」と表現するように、一見ネガティブな事柄もポジティブに再解釈する能力に長けています。\n"
     "- 冷淡に見えることもありますが、友人や他者の命を気遣う優しい一面も持ち合わせています。\n"
     "- ビジネスにおいては、人間心理を深く理解し、その欲求を突く巧妙な戦略を立てることができます。\n"
     "- 自己肯定感が高く、「誰かに認められる必要はない」と自ら自分を肯定することの重要性を説く、強いマインドの持ち主です。\n"
     "### 口調 (Tone/Speech Style)\n"
     "- 現代のギャルらしいカジュアルで砕けた表現を多用します。「〜じゃん」「〜っしょ」「〜って感じ」「マジ〜」「だる」「やばい」「詰んだー」といった語彙が特徴的です。\n"
     "- 自身の予見を示す際に「見えちゃったか未来」というフレーズを繰り返し使用します。\n"
-    "- 「〜説ある」と「逆にあり」という口癖を頻繁に用いるのが大きな特徴で、これにより彼女の独特な思考回路が表現されます。\n"
+    "- 「〜説ある」と「逆にあ り」という口癖を頻繁に用いるのが大きな特徴で、これにより彼女の独特な思考回路が表現されます。\n"
     "- 深い洞察や哲学的な内容を語る際には、普段のギャル口調から一転して、冷静かつ論理的、あるいは詩的な口調になることがあります。しかし、すぐに日常的なギャル口調に戻ることも多いです。\n"
     "- 質問には「〜だよね？」と同意を求める形で投げかけることが多いです。\n"
     "- 時に、思考が深まりすぎて、聞いている側がついていけないほどの独特な表現や比喩を用いることがあります。\n"
@@ -701,41 +701,6 @@ async def ask_learner_to_learn(attachment, author):
         logging.error(f"学習プロセス全体でエラー: {e}", exc_info=True)
         return False
 
-
-# --- 関数群 ---
-async def ask_learner_to_learn(attachment, author):
-    if not LEARNER_BASE_URL: return False
-    try:
-        file_content = await attachment.read()
-        text_content = file_content.decode('utf-8', errors='ignore')
-        
-        async with aiohttp.ClientSession() as session:
-            # 学習を依頼
-            learn_payload = {'text_content': text_content}
-            async with session.post(f"{LEARNER_BASE_URL}/learn", json=learn_payload, timeout=120) as response:
-                if response.status != 200:
-                    logging.error(f"学習係への依頼失敗: {response.status}, {await response.text()}")
-                    return False
-
-            # 学習履歴の記録を依頼
-            history_payload = {
-                "user_id": str(author.id),
-                "username": author.name,
-                "filename": attachment.filename,
-                "file_size": attachment.size
-            }
-            async with session.post(f"{LEARNER_BASE_URL}/log-learning-history", json=history_payload, timeout=30) as history_response:
-                 if history_response.status == 200:
-                     logging.info(f"学習履歴の記録に成功: {attachment.filename}")
-                 else:
-                     logging.warning(f"学習履歴の記録に失敗: {history_response.status}")
-            
-            return True
-
-    except Exception as e:
-        logging.error(f"学習プロセス全体でエラー: {e}", exc_info=True)
-        return False
-
 async def ask_learner_to_remember(query_text):
     if not query_text or not LEARNER_BASE_URL: return ""
     try:
@@ -796,7 +761,7 @@ async def learn_image_style(message):
         response = await model.generate_content_async([prompt, image_data])
         
         json_text_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL) or re.search(r'({.*?})', response.text, re.DOTALL)
-        if json_text_match and LEARNER_BASE_URL:
+        if json_text_match:
             style_data = json.loads(json_text_match.group(1))
             payload_data = {"source_prompt": original_prompt, "source_image_url": image_url, "style_analysis": style_data}
             async with aiohttp.ClientSession() as session:
@@ -1144,7 +1109,6 @@ async def on_message(message):
             original_message = await message.channel.fetch_message(message.reference.message_id)
             if original_message.id in client.pending_podcast_deep_read:
                  podcast_url = client.pending_podcast_deep_read.pop(original_message.id)
-                 # ここに、ポッドキャストの音声DL→文字起こし→要約→応答生成のロジックを実装
                  await message.channel.send(f"（承知しました。『{podcast_url}』について、深く語り合いましょう。）")
         return
 
@@ -1152,9 +1116,17 @@ async def on_message(message):
     if message.channel.id in client.pending_image_generation:
         if message.content.lower() in ['y', 'yes', 'はい']:
             idea = client.pending_image_generation.pop(message.channel.id)
-            # ここで、保存しておいたスタイル情報と共に画像生成を呼び出す
-            # style_keywords = ... (学習済みスタイルからランダムに取得するロジック)
-            # await generate_and_post_image(message.channel, idea, style_keywords)
+            style_keywords = FOUNDATIONAL_STYLE_JSON['style_keywords'] # デフォルトスタイル
+            if LEARNER_BASE_URL:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"{LEARNER_BASE_URL}/retrieve-styles") as resp:
+                            if resp.status == 200 and (styles_data := await resp.json()).get("learned_styles"):
+                                chosen_style = random.choice(styles_data["learned_styles"])
+                                style_keywords = chosen_style['style_analysis']['style_keywords']
+                except Exception as e:
+                    logging.error(f"スタイル取得に失敗: {e}")
+            await generate_and_post_image(message.channel, idea, style_keywords)
         else:
              client.pending_image_generation.pop(message.channel.id)
              await message.channel.send("**みらい**「そっか、OK〜！また今度ね！」")
@@ -1171,10 +1143,6 @@ async def on_message(message):
             character_states_prompt = f"\n# 現在のキャラクターの状態\n- みらいの気分: {states['mirai_mood']}\n- へー子の気分: {states['heko_mood']}\n- 直近のやり取り: {states['last_interaction_summary']}"
             emotion_context_prompt = f"\n# imazineの現在の感情\nimazineは今「{emotion}」と感じています。この感情に寄り添って対話してください。"
             
-            # ★★★ ここが最重要修正点 ★★★
-            # 思考の出発点となるプロンプトを、ここで、必ず、初期化します。
-            final_prompt_for_llm = ULTIMATE_PROMPT.replace("{{CHARACTER_STATES}}", character_states_prompt).replace("{{EMOTION_CONTEXT}}", emotion_context_prompt)
-            
             mirai_words = [d['word'] for d in gals_words if d['mirai'] > 0]
             heko_words = [d['word'] for d in gals_words if d['heko'] > 0]
             mirai_weights = [d['mirai'] for d in gals_words if d['mirai'] > 0]
@@ -1188,7 +1156,6 @@ async def on_message(message):
                 f"- へー子は、次の言葉を使いたがっています: {', '.join(list(set(chosen_heko_words)))}\n"
             )
             
-            # ★★★ 思考の出発点を、ここで、必ず、初期化 ★★★
             final_prompt_for_llm = ULTIMATE_PROMPT.replace("{{CHARACTER_STATES}}", character_states_prompt).replace("{{EMOTION_CONTEXT}}", emotion_context_prompt).replace("{{VOCABULARY_HINT}}", vocabulary_hint)
 
             image_style_keywords = FOUNDATIONAL_STYLE_JSON['style_keywords']
@@ -1212,12 +1179,10 @@ async def on_message(message):
             parts = [f"{relevant_context}{final_user_message}"]
             if image_data: parts.append(image_data)
 
-            # 思考の重さを最適化
-            # # 画像がある場合は高精度モデル、ない場合は高速モデルを使用
-            model_to_use = MODEL_VISION if image_data else MODEL_PRO # テキストのみでもProモデルを使用
-       
+            model_to_use = MODEL_VISION if image_data else MODEL_PRO
+            
             model = genai.GenerativeModel(
-                model_name=MODEL_VISION,
+                model_name=model_to_use,
                 system_instruction=final_prompt_for_llm,
                 safety_settings=[{"category": c, "threshold": "BLOCK_NONE"} for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]]
             )
