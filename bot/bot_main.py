@@ -1,4 +1,4 @@
-# MIRAI-HEKO-Bot main.py (Ver.5.9 - The Unifying Soul)
+# MIRAI-HEKO-Bot main.py (Ver.6.0 - The Unified Soul)
 # Creator & Partner: imazine & Gemini
 # Last Updated: 2025-06-29
 
@@ -42,10 +42,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 def get_env_variable(var_name, is_critical=True, default=None):
     value = os.getenv(var_name)
-    if not value and is_critical:
-        logging.critical(f"'{var_name}' が設定されていません。")
-        raise ValueError(f"'{var_name}' is not set.")
-    return value if value else default
+    if not value:
+        if is_critical:
+            logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
+            raise ValueError(f"'{var_name}' is not set.")
+        return default
+    return value
 
 try:
     GEMINI_API_KEY = get_env_variable('GEMINI_API_KEY')
@@ -1133,7 +1135,7 @@ async def on_message(message):
         else:
             await message.channel.send("**みらい**「ん？『y』か『n』で答えてほしいな！」")
         return
-
+        
     # コマンド処理
     if message.content.startswith('!'):
         if message.content == '!report':
