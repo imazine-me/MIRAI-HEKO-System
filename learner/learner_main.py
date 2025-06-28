@@ -1,14 +1,12 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.5.5 - The Final Key)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.5.8 - The Final Genesis)
 import os
 import logging
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List
-
 import google.generativeai as genai
-from supabase.client import Client, create_client
+from supabase.client import create_client
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain.text_splitter import CharacterTextSplitter
@@ -22,12 +20,10 @@ lifespan_context = {}
 
 def get_env_variable(var_name, is_critical=True, default=None):
     value = os.getenv(var_name)
-    if not value:
-        if is_critical:
-            logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
-            raise ValueError(f"'{var_name}' is not set.")
-        return default
-    return value
+    if not value and is_critical:
+        logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
+        raise ValueError(f"'{var_name}' is not set.")
+    return value if value else default
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,8 +36,6 @@ async def lifespan(app: FastAPI):
         lifespan_context["supabase_client"] = create_client(supabase_url, supabase_key)
         genai.configure(api_key=gemini_api_key)
         
-        # ★★★ ここが最重要修正点 ★★★
-        # LangChainのモジュールに、直接、APIキーを渡します。
         lifespan_context["embeddings"] = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=gemini_api_key)
         
         lifespan_context["vectorstore"] = SupabaseVectorStore(
@@ -50,7 +44,7 @@ async def lifespan(app: FastAPI):
             table_name="documents",
             query_name="match_documents",
         )
-        lifespan_context["text_splitter"] = CharacterTextSplitter(separator="\n\n", chunk_size=500, chunk_overlap=50)
+        lifespan_context["text_splitter"] = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
         lifespan_context["genai_model"] = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
 
         logging.info("全ての初期化処理が完了。学習係は正常です。")
@@ -65,7 +59,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# --- Pydanticモデル定義 ---
 class TextContent(BaseModel): text_content: str
 class Query(BaseModel): query_text: str
 class SummarizeRequest(BaseModel): history_text: str
@@ -77,14 +70,17 @@ class LearningHistory(BaseModel):
     filename: str
     file_size: int
 
-# --- APIエンドポイント ---
 @app.post("/learn")
 async def learn(request: TextContent):
+    if "vectorstore" not in lifespan_context:
+        raise HTTPException(status_code=500, detail="Vectorstore is not initialized")
     try:
-        # 本文をチャンクに分割して保存
         texts = lifespan_context["text_splitter"].split_text(request.text_content)
         lifespan_context["vectorstore"].add_texts(texts=texts)
-        logging.info(f"{len(texts)}個のチャンクを学習しました。")
+        return {"message": "Learning successful"}
+    except Exception as e:
+        logging.error(f"Error in /learn: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
         # ★★★ 新機能：学習内容の「タイトル（要約）」を自動生成して保存 ★★★
         summary_prompt = f"以下のテキスト全体の、最も重要なテーマや主題を、30文字程度の、非常に簡潔な「タイトル」にしてください。\n\n# テキスト\n{request.text_content[:2000]}"
