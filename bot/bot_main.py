@@ -315,6 +315,151 @@ MIRAI_SKETCH_PROMPT = "あなたは、未来予知能力を持つ、インスピ
 HEKO_CONCERN_ANALYSIS_PROMPT = "あなたは、人の心の機微に敏感なカウンセラー「へー子」です。以下の会話から、imazineが抱えている「具体的な悩み」や「ストレスの原因」を一つだけ、最も重要なものを抽出してください。もし、明確な悩みが見当たらない場合は、'None'とだけ返してください。\n\n# 会話\n{conversation_text}"
 GROWTH_REPORT_PROMPT = "あなたは、私たちの関係性をメタ的に分析する、全能のAI秘書「MAGI」です。以下の、過去一ヶ月の会話の要約リストを元に、imazineさんへの「成長記録レポート」を作成してください。レポートには、①imazineさんの思考の変化、②みらいとへー子の個性の進化、③私たち4人の関係性の深化、という3つの観点から、具体的なエピソードを交えつつ、愛情のこもった分析を記述してください。\n\n# 会話サマリーリスト\n{summaries}"
 
+# -*- coding: utf-8 -*-
+"""
+『私立パラの丸高校の日常』
+みらい／へー子 ギャル語ランキング 100
+
+各 dict のフィールド
+- rank          : 使用頻度順位（1=最多）
+- word          : ギャル語（バリエーションは代表形で統合）
+- total         : みらい＋へー子 合算登場回数（概算）
+- mirai         : みらいの登場回数
+- heko          : へー子の登場回数
+- note          : 補足（あれば）
+"""
+
+gals_words = [
+    {"rank": 1,  "word": "ヤバい",        "total": 50, "mirai": 30, "heko": 20},
+    {"rank": 2,  "word": "マジ",          "total": 45, "mirai": 22, "heko": 23},
+    {"rank": 3,  "word": "それな",        "total": 40, "mirai": 18, "heko": 22},
+    {"rank": 4,  "word": "ガチ",          "total": 35, "mirai": 17, "heko": 18},
+    {"rank": 5,  "word": "てか",          "total": 35, "mirai": 19, "heko": 16},
+    {"rank": 6,  "word": "〜じゃん",      "total": 30, "mirai": 15, "heko": 15},
+    {"rank": 7,  "word": "ウケる",        "total": 30, "mirai": 14, "heko": 16},
+    {"rank": 8,  "word": "めっちゃ",      "total": 25, "mirai": 11, "heko": 14},
+    {"rank": 9,  "word": "超",            "total": 20, "mirai": 9,  "heko": 11},
+    {"rank": 10, "word": "とりま",        "total": 20, "mirai": 12, "heko": 8},
+    {"rank": 11, "word": "〜説ある",      "total": 15, "mirai": 7,  "heko": 8},
+    {"rank": 12, "word": "ちょ",          "total": 15, "mirai": 8,  "heko": 7},
+    {"rank": 13, "word": "うちら",        "total": 15, "mirai": 8,  "heko": 7},
+    {"rank": 14, "word": "レベチ",        "total": 12, "mirai": 6,  "heko": 6},
+    {"rank": 15, "word": "エグい",        "total": 12, "mirai": 5,  "heko": 7},
+    {"rank": 16, "word": "エモい",        "total": 10, "mirai": 4,  "heko": 6},
+    {"rank": 17, "word": "チルい",        "total": 10, "mirai": 3,  "heko": 7},
+    {"rank": 18, "word": "ニコイチ",      "total": 8,  "mirai": 4,  "heko": 4},
+    {"rank": 19, "word": "あたおか",      "total": 8,  "mirai": 5,  "heko": 3},
+    {"rank": 20, "word": "ぴえん",        "total": 8,  "mirai": 3,  "heko": 5},
+    {"rank": 21, "word": "バイブス",      "total": 7,  "mirai": 4,  "heko": 3},
+    {"rank": 22, "word": "無理",          "total": 7,  "mirai": 2,  "heko": 5},
+    {"rank": 23, "word": "キモい",        "total": 6,  "mirai": 3,  "heko": 3},
+    {"rank": 24, "word": "ダルい",        "total": 6,  "mirai": 4,  "heko": 2},
+    {"rank": 25, "word": "陰キャ",        "total": 6,  "mirai": 2,  "heko": 4},
+    {"rank": 26, "word": "陽キャ",        "total": 6,  "mirai": 3,  "heko": 3},
+    {"rank": 27, "word": "地雷",          "total": 5,  "mirai": 2,  "heko": 3},
+    {"rank": 28, "word": "メンヘラ",      "total": 5,  "mirai": 2,  "heko": 3},
+    {"rank": 29, "word": "推し",          "total": 5,  "mirai": 2,  "heko": 3},
+    {"rank": 30, "word": "映え",          "total": 5,  "mirai": 3,  "heko": 2},
+    {"rank": 31, "word": "よき",          "total": 5,  "mirai": 1,  "heko": 4},
+    {"rank": 32, "word": "ディスる",      "total": 4,  "mirai": 2,  "heko": 2},
+    {"rank": 33, "word": "イキる",        "total": 4,  "mirai": 1,  "heko": 3},
+    {"rank": 34, "word": "盛れる",        "total": 4,  "mirai": 3,  "heko": 1},
+    {"rank": 35, "word": "おこ",          "total": 4,  "mirai": 2,  "heko": 2},
+    {"rank": 36, "word": "萎える",        "total": 4,  "mirai": 1,  "heko": 3},
+    {"rank": 37, "word": "ワンチャン",    "total": 3,  "mirai": 2,  "heko": 1},
+    {"rank": 38, "word": "ありえん",      "total": 3,  "mirai": 2,  "heko": 1},
+    {"rank": 39, "word": "ぶっちゃけ",    "total": 3,  "mirai": 1,  "heko": 2},
+    {"rank": 40, "word": "普通に",        "total": 3,  "mirai": 2,  "heko": 1},
+    {"rank": 41, "word": "〜しか勝たん",  "total": 3,  "mirai": 1,  "heko": 2},
+    {"rank": 42, "word": "マジ卍",        "total": 3,  "mirai": 1,  "heko": 2},
+    {"rank": 43, "word": "あざす",        "total": 3,  "mirai": 2,  "heko": 1},
+    {"rank": 44, "word": "パリピ",        "total": 3,  "mirai": 1,  "heko": 2},
+    {"rank": 45, "word": "おつ",          "total": 2,  "mirai": 1,  "heko": 1},
+    {"rank": 46, "word": "りょ",          "total": 2,  "mirai": 1,  "heko": 1},
+    {"rank": 47, "word": "あり",          "total": 2,  "mirai": 1,  "heko": 1},
+    {"rank": 48, "word": "どゆこと",      "total": 2,  "mirai": 1,  "heko": 1},
+    {"rank": 49, "word": "ありよりのなし","total": 2, "mirai": 1,  "heko": 1},
+    {"rank": 50, "word": "しんど",        "total": 2,  "mirai": 1,  "heko": 1},
+    {"rank": 51, "word": "草",            "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 52, "word": "詰んだ",        "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 53, "word": "ビビる",        "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 54, "word": "ビミョー",      "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 55, "word": "激アツ",        "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 56, "word": "寒い",          "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 57, "word": "うざい",        "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 58, "word": "じわる",        "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 59, "word": "ドンマイ",      "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 60, "word": "量産型",        "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 61, "word": "チョロい",      "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 62, "word": "バズる",        "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 63, "word": "クソ○○",       "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 64, "word": "ミスる",        "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 65, "word": "しくった",      "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 66, "word": "チャラい",      "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 67, "word": "おもろい",      "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 68, "word": "知らんけど",    "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 69, "word": "あげぽよ",      "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 70, "word": "大丈夫そ？",    "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 71, "word": "鬼○○",         "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 72, "word": "ガン見",        "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 73, "word": "言うて",        "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 74, "word": "うっせぇ",      "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 75, "word": "ノリ",          "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 76, "word": "イメチェン",    "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 77, "word": "〜み",          "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 78, "word": "バグる",        "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 79, "word": "パネェ",        "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 80, "word": "はよ",          "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 81, "word": "ブチ上げ",      "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 82, "word": "あるある",      "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 83, "word": "あーね",        "total": 1,  "mirai": 1,  "heko": 0, "note": "リクエスト追加"},
+    {"rank": 84, "word": "案件",          "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 85, "word": "JK",            "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 86, "word": "ガチごめん",    "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 87, "word": "オケ",          "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 88, "word": "KY",            "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 89, "word": "バリワナ",      "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 90, "word": "ガチチル",      "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 91, "word": "ほんそれ",      "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 92, "word": "尊い",          "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 93, "word": "秒で",          "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 94, "word": "チート",        "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 95, "word": "バチギレ",      "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 96, "word": "ハマえ",        "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 97, "word": "ポテカード",    "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 98, "word": "キャッチ鬼",    "total": 1,  "mirai": 0,  "heko": 1},
+    {"rank": 99, "word": "ウェイ",        "total": 1,  "mirai": 1,  "heko": 0},
+    {"rank": 100,"word": "スキピ",        "total": 1,  "mirai": 0,  "heko": 1},
+]
+
+# 連続した掛け合い（例示）
+# pair_talks はセリフが短く交互に出た代表例を抜粋
+pair_talks = [
+    {
+        "episode": "文化祭編#2",
+        "lines": [
+            {"speaker": "みらい", "text": "ウケるんだけど！"},
+            {"speaker": "へー子", "text": "ほんそれ！"},
+            {"speaker": "みらい", "text": "てかバイブス上がりすぎ！"},
+            {"speaker": "へー子", "text": "ブチ上げ案件じゃん！"},
+        ]
+    },
+    {
+        "episode": "テスト前日#1",
+        "lines": [
+            {"speaker": "へー子", "text": "ワンチャン赤点じゃね？"},
+            {"speaker": "みらい", "text": "マジ卍…"},
+            {"speaker": "へー子", "text": "てか勉強しよ？"},
+            {"speaker": "みらい", "text": "とりまプリ飲みながら？"},
+        ]
+    },
+]
+
+if __name__ == "__main__":
+    # ランキングの冒頭5語を確認
+    for w in gals_words[:5]:
+        print(f"{w['rank']}. {w['word']} (みらい:{w['mirai']} / へー子:{w['heko']})")
+
 # --- 関数群 ---
 async def ask_learner_to_learn(attachment, author):
     if not LEARNER_BASE_URL: return False
@@ -804,6 +949,23 @@ async def on_message(message):
             asyncio.create_task(suggest_bgm(message.channel, emotion))
     except Exception as e:
         logging.error(f"応答後の非同期タスクでエラー: {e}", exc_info=True)
+        
+    # --- ボキャブラリー・インジェクション ---
+    mirai_words = [d['word'] for d in gals_words if d['mirai'] > 0]
+    heko_words = [d['word'] for d in gals_words if d['heko'] > 0]
+    
+    mirai_weights = [d['mirai'] for d in gals_words if d['mirai'] > 0]
+    heko_weights = [d['heko'] for d in gals_words if d['heko'] > 0]
+
+    chosen_mirai_words = random.choices(mirai_words, weights=mirai_weights, k=3)
+    chosen_heko_words = random.choices(heko_words, weights=heko_weights, k=3)
+    
+    vocabulary_hint = (
+        f"# 口調制御のための特別ヒント\n"
+        f"- みらいは、次の言葉を使いたがっています: {', '.join(list(set(chosen_mirai_words)))}\n"
+        f"- へー子は、次の言葉を使いたがっています: {', '.join(list(set(chosen_heko_words)))}\n"
+    )
+    final_prompt_for_llm += "\n" + vocabulary_hint
 
 
 @client.event
