@@ -1,11 +1,8 @@
 fastapi
 uvicorn[standard]
 langchain
-langchain-community
+langchain-supabase
 langchain-google-genai
 google-generativeai
 supabase
-requests
-beautifulsoup4
-aiohttp
 python-dotenv
