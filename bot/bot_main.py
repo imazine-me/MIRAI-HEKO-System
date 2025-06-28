@@ -1,4 +1,4 @@
-# MIRAI-HEKO-Bot main.py (ver.13.0 - 最終完成・記憶検索強化版)
+# MIRAI-HEKO-Bot main.py (ver.13.0 - 最終完成・記憶検索強化・全機能再実装版)
 
 import os
 import logging
@@ -277,6 +277,7 @@ META_ANALYSIS_PROMPT = """
 """
 TRANSCRIPTION_PROMPT = "この音声ファイルの内容を、一字一句正確に、句読点も含めてテキスト化してください。"
 EMOTION_ANALYSIS_PROMPT = "以下のimazineの発言テキストから、彼の現在の感情を分析し、最も的確なキーワード（例：喜び、疲れ、創造的な興奮、悩み、期待、ニュートラルなど）で、単語のみで答えてください。"
+QUERY_REPHRASE_PROMPT = "以下のユーザーからの質問を、ベクトル検索に適した、より具体的でキーワードが豊富な検索クエリに書き換えてください。元の質問の意図は完全に保持してください。応答は、書き換えた検索クエリのテキストのみを出力してください。\n\n# 元の質問:\n"
 
 # --- 関数群 ---
 async def ask_learner_to_learn(attachment):
@@ -299,8 +300,15 @@ async def ask_learner_to_learn(attachment):
 async def ask_learner_to_remember(query_text):
     if not query_text or not LEARNER_BASE_URL: return ""
     try:
+        # ★★★ 記憶検索の改善 (ver.13.0) ★★★
+        # ユーザーの質問を、より検索に適したクエリに変換する
+        model = genai.GenerativeModel(MODEL_ADVANCED_ANALYSIS)
+        rephrased_query_response = await model.generate_content_async(f"{QUERY_REPHRASE_PROMPT}{query_text}")
+        rephrased_query = rephrased_query_response.text.strip()
+        logging.info(f"元の質問「{query_text}」を、検索クエリ「{rephrased_query}」に変換しました。")
+
         async with aiohttp.ClientSession() as session:
-            payload = {'query_text': query_text}
+            payload = {'query_text': rephrased_query}
             async with session.post(f"{LEARNER_BASE_URL}/query", json=payload, timeout=30) as response:
                 if response.status == 200:
                     data = await response.json()
