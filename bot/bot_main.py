@@ -298,17 +298,23 @@ async def ask_learner_to_learn(attachment):
         return False
 
 async def ask_learner_to_remember(query_text):
+    """
+    ★ver.13.0での最重要改善点★
+    ユーザーの質問を、まずAIに解釈させ、最適な検索キーワードを生成してから、
+    Learnerに問い合わせることで、記憶の検索精度を飛躍的に向上させる。
+    """
     if not query_text or not LEARNER_BASE_URL: return ""
     try:
-        # ★★★ 記憶検索の改善 (ver.13.0) ★★★
-        # ユーザーの質問を、より検索に適したクエリに変換する
+        # ユーザーの質問から、ベクトル検索に最適なキーワードを抽出する
         model = genai.GenerativeModel(MODEL_ADVANCED_ANALYSIS)
-        rephrased_query_response = await model.generate_content_async(f"{QUERY_REPHRASE_PROMPT}{query_text}")
-        rephrased_query = rephrased_query_response.text.strip()
-        logging.info(f"元の質問「{query_text}」を、検索クエリ「{rephrased_query}」に変換しました。")
+        rephrase_prompt = f"以下のユーザーからの質問内容の、最も重要なキーワードを3つ抽出してください。応答は、カンマ区切りのキーワードのみを出力してください。\n\n# 質問内容:\n{query_text}"
+        rephrased_query_response = await model.generate_content_async(rephrase_prompt)
+        search_keywords = rephrased_query_response.text.strip()
+        logging.info(f"元の質問「{query_text}」を、検索キーワード「{search_keywords}」に変換しました。")
 
         async with aiohttp.ClientSession() as session:
-            payload = {'query_text': rephrased_query}
+            # 元の質問と、抽出したキーワードの両方を使って検索する
+            payload = {'query_text': f"{query_text} {search_keywords}"}
             async with session.post(f"{LEARNER_BASE_URL}/query", json=payload, timeout=30) as response:
                 if response.status == 200:
                     data = await response.json()
