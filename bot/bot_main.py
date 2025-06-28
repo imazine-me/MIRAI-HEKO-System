@@ -42,12 +42,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 def get_env_variable(var_name, is_critical=True, default=None):
     value = os.getenv(var_name)
-    if not value:
-        if is_critical:
-            logging.critical(f"必須の環境変数 '{var_name}' が設定されていません。")
-            raise ValueError(f"'{var_name}' is not set.")
-        return default
-    return value
+    if not value and is_critical:
+        logging.critical(f"'{var_name}' が設定されていません。")
+        raise ValueError(f"'{var_name}' is not set.")
+    return value if value else default
 
 try:
     GEMINI_API_KEY = get_env_variable('GEMINI_API_KEY')
@@ -800,7 +798,7 @@ async def scheduled_contextual_task(job_name, prompt_template):
             today_str=datetime.now(pytz.timezone(TIMEZONE)).strftime('%Y年%m月%d日 %A'),
             recent_context=context if context else "特筆すべき出来事はありませんでした。"
         )
-        model = genai.GenerativeModel(MODEL_FAST)
+        model = genai.GenerativeModel(MODEL_PRO)
         response = await model.generate_content_async(final_prompt)
         await channel.send(response.text)
         logging.info(f"スケジュールジョブ「{job_name}」を文脈付きで実行しました。")
@@ -999,6 +997,17 @@ def get_text_from_pdf(pdf_data):
         logging.error(f"PDFからのテキスト抽出中にエラー: {e}")
         return "PDFファイルの解析中にエラーが発生しました。"
 
+def extract_youtube_video_id(url):
+    patterns = [
+        r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})',
+        r'(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]{11})',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
 def get_youtube_transcript(video_id):
     try:
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ja', 'en'])
@@ -1097,6 +1106,30 @@ async def on_message(message):
     if message.author == client.user or not isinstance(message.channel, discord.Thread) or "4人の談話室" not in message.channel.name:
         return
     
+    # Y/N確認フローの処理を最優先
+    if message.channel.id in client.pending_image_generation:
+        if message.content.lower() in ['y', 'yes', 'はい']:
+            idea = client.pending_image_generation.pop(message.channel.id)
+            await message.channel.send("**みらい**「よっしゃ！任せろ！」")
+            style_keywords = FOUNDATIONAL_STYLE_JSON['style_keywords'] # デフォルト
+            if LEARNER_BASE_URL:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"{LEARNER_BASE_URL}/retrieve-styles") as resp:
+                            if resp.status == 200 and (data := await resp.json()).get("learned_styles"):
+                                style_keywords = random.choice(data["learned_styles"])['style_analysis']['style_keywords']
+                except Exception as e:
+                    logging.error(f"スタイル取得に失敗: {e}")
+            
+            asyncio.create_task(generate_and_post_image(message.channel, idea, style_keywords))
+        
+        elif message.content.lower() in ['n', 'no', 'いいえ']:
+             client.pending_image_generation.pop(message.channel.id)
+             await message.channel.send("**みらい**「そっか、OK〜！また今度ね！」")
+        else:
+            await message.channel.send("**みらい**「ん？『y』か『n』で答えてほしいな！」")
+        return
+
     # コマンド処理
     if message.content.startswith('!'):
         if message.content == '!report':
@@ -1109,27 +1142,8 @@ async def on_message(message):
             original_message = await message.channel.fetch_message(message.reference.message_id)
             if original_message.id in client.pending_podcast_deep_read:
                  podcast_url = client.pending_podcast_deep_read.pop(original_message.id)
+                 # ここに、ポッドキャストの音声DL→文字起こし→要約→応答生成のロジックを実装
                  await message.channel.send(f"（承知しました。『{podcast_url}』について、深く語り合いましょう。）")
-        return
-
-    # Y/N確認フロー
-    if message.channel.id in client.pending_image_generation:
-        if message.content.lower() in ['y', 'yes', 'はい']:
-            idea = client.pending_image_generation.pop(message.channel.id)
-            style_keywords = FOUNDATIONAL_STYLE_JSON['style_keywords'] # デフォルトスタイル
-            if LEARNER_BASE_URL:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(f"{LEARNER_BASE_URL}/retrieve-styles") as resp:
-                            if resp.status == 200 and (styles_data := await resp.json()).get("learned_styles"):
-                                chosen_style = random.choice(styles_data["learned_styles"])
-                                style_keywords = chosen_style['style_analysis']['style_keywords']
-                except Exception as e:
-                    logging.error(f"スタイル取得に失敗: {e}")
-            await generate_and_post_image(message.channel, idea, style_keywords)
-        else:
-             client.pending_image_generation.pop(message.channel.id)
-             await message.channel.send("**みらい**「そっか、OK〜！また今度ね！」")
         return
 
     # メイン会話処理
@@ -1204,7 +1218,7 @@ async def on_message(message):
                 if is_nudge_present and image_gen_idea.get("situation"):
                     await generate_and_post_image(message.channel, image_gen_idea, image_style_keywords)
                 elif not (client.last_surprise_time and (datetime.now(pytz.timezone(TIMEZONE)) - client.last_surprise_time) < timedelta(hours=3)):
-                    judgement_model = genai.GenerativeModel(MODEL_FAST)
+                    judgement_model = genai.GenerativeModel(MODEL_PRO)
                     history_text_for_judgement = "\n".join([f"{m['role']}:{p['text']}" for m in history for p in m.get('parts', []) if 'text' in p])
                     judgement_prompt = SURPRISE_JUDGEMENT_PROMPT.replace("{{conversation_history}}", history_text_for_judgement)
                     judgement_response = await judgement_model.generate_content_async(judgement_prompt)
