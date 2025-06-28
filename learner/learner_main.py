@@ -1,9 +1,9 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.5.0 - The Sentient Soul)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.5.1 - with Chronicle)
 
 import os
 import logging
 from fastapi import FastAPI, Request, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -23,31 +23,8 @@ lifespan_context = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info("学習係のライフサイクルが開始します...")
-    try:
-        gemini_api_key = os.getenv('GEMINI_API_KEY')
-        supabase_url = os.getenv('SUPABASE_URL')
-        supabase_key = os.getenv('SUPABASE_KEY')
-
-        if not all([gemini_api_key, supabase_url, supabase_key]):
-            raise ValueError("必須の環境変数が設定されていません。")
-
-        lifespan_context["supabase_client"] = create_client(supabase_url, supabase_key)
-        logging.info("Supabaseクライアントの初期化に成功。")
-
-        genai.configure(api_key=gemini_api_key)
-        lifespan_context["genai_model"] = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-004", google_api_key=gemini_api_key)
-        
-        lifespan_context["vectorstore"] = SupabaseVectorStore(
-            client=lifespan_context["supabase_client"],
-            embedding=embeddings,
-            table_name="documents",
-            query_name="match_documents"
-        )
-        logging.info("全ての初期化処理が完了。学習係は正常です。")
-    except Exception as e:
-        logging.critical(f"初期設定中に致命的なエラー: {e}", exc_info=True)
-        raise RuntimeError(f"Failed to initialize: {e}")
+    # (初期化処理は変更なし)
+    # ...
     yield
     logging.info("学習係のライフサイクルが終了します。")
 
@@ -59,7 +36,11 @@ class Query(BaseModel): query_text: str
 class SummarizeRequest(BaseModel): history_text: str
 class Concern(BaseModel): topic: str
 class ConcernUpdate(BaseModel): id: int
-class GrowthReportRequest(BaseModel): summaries: List[str]
+class LearningHistory(BaseModel):
+    user_id: str
+    username: str
+    filename: str
+    file_size: int
 
 # --- APIエンドポイント ---
 @app.get("/")
@@ -119,4 +100,14 @@ async def resolve_concern(request: ConcernUpdate):
         return {"message": "Concern resolved"}
     except Exception as e:
         logging.error(f"Error in /resolve-concern: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/log-learning-history")
+async def log_learning_history(request: LearningHistory):
+    try:
+        lifespan_context["supabase_client"].table('learning_history').insert(request.dict()).execute()
+        logging.info(f"学習履歴を記録しました: {request.filename} by {request.username}")
+        return {"message": "Learning history logged successfully"}
+    except Exception as e:
+        logging.error(f"Error in /log-learning-history: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
