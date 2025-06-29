@@ -1,13 +1,13 @@
 discord.py
 google-generativeai
-aiohttp
+requests
 beautifulsoup4
+aiohttp
 apscheduler
 pytz
 Pillow
+google-cloud-aiplatform
+google-auth
 python-dotenv
 PyMuPDF
 youtube-transcript-api
-tenacity
-google-cloud-aiplatform
-google-auth-oauthlib
