@@ -11,3 +11,4 @@ youtube-transcript-api
 tenacity
 google-cloud-aiplatform
 google-auth
+aiohttp>=3.8
