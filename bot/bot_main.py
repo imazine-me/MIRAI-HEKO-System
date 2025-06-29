@@ -753,13 +753,20 @@ async def on_ready():
     logging.info(f"Loaded {len(client.gals_words)} words and {len(client.dialogue_examples)} examples.")
 
     # ★★★ ここからが、偽装工作の、心臓部です ★★★
-    async def health_check_server():
+import aiohttp
+from aiohttp import web
+
+async def health_check_server():
+    """Railway のヘルスチェック用に :8080 で超簡易サーバを立てる"""
     app = web.Application()
-    app.add_routes([web.get("/health", lambda r: web.json_response({"ok": True}))])
+    app.add_routes([web.get("/health", lambda request: web.Response(text="ok"))])
+
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    site = web.TCPSite(runner, host="0.0.0.0", port=8080)
     await site.start()
+# -------------------------------------------------------------
+
     # Botの、メインの、魂と、並行して、小さな、心臓を、動かします
     asyncio.create_task(health_check_server())
     # ★★★ ここまでが、偽装工作の、心臓部です ★★★
