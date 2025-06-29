@@ -1,4 +1,4 @@
-# learner_main.py (ver.Ω - The Omega Version)
+# learner_main.py (ver.Ω+ - The True Final Version)
 # The Temple of Soul and Memory, running on Supabase.
 # Part 1/2: Core Setup and Memory I/O
 
@@ -7,6 +7,7 @@ import logging
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
+import datetime as dt
 
 # LangChain and Vector Store related imports
 from langchain_community.vectorstores import Chroma
@@ -18,11 +19,11 @@ from supabase.client import Client, create_client
 
 # --- 1. 初期設定 (Initial Setup) ---
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
 app = FastAPI(
     title="Learner API - The Soul of MIRAI-HEKO-Bot",
-    description="This API manages the long-term memory, style palette, and character states.",
-    version="1.0.0"
+    description="This API manages the long-term memory, style palette, character states, and concerns.",
+    version="2.0.0"
 )
 
 # --- 2. クライアントの初期化 (Client Initialization) ---
@@ -30,25 +31,26 @@ app = FastAPI(
 try:
     # Supabaseクライアントを環境変数から初期化
     supabase_url: str = os.environ.get("SUPABASE_URL")
-    supabase_key: str = os.environ.get("SUPABASE_ANON_KEY")
+    supabase_key: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") # セキュリティのためサービスキーを使用
     if not supabase_url or not supabase_key:
-        raise ValueError("SupabaseのURLまたはキーが設定されていません。")
+        raise ValueError("SupabaseのURLまたはサービスロールキーが設定されていません。")
     supabase: Client = create_client(supabase_url, supabase_key)
     logging.info("Supabase client initialized successfully.")
 
     # GoogleのEmbeddingモデルを初期化 (知識のベクトル化に使用)
     # 動作させる環境のAPIキー設定に依存
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="retrieval_document")
+    google_api_key = os.environ.get("GOOGLE_API_KEY")
+    if not google_api_key:
+        raise ValueError("GOOGLE_API_KEYが設定されていません。")
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="retrieval_document", google_api_key=google_api_key)
     logging.info("Google Generative AI Embeddings initialized successfully.")
 
 except Exception as e:
     logging.critical(f"FATAL: クライアントの初期化中にエラーが発生しました: {e}")
-    # アプリケーションを起動させないように、ここでエラーを発生させることも検討
     raise e
 
 # --- 3. テキスト分割とベクトルストアの設定 (Text Splitter and Vector Store Configuration) ---
 
-# テキストを適切なサイズに分割するためのスプリッター
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=1500,
     chunk_overlap=200,
@@ -57,12 +59,12 @@ text_splitter = RecursiveCharacterTextSplitter(
 )
 
 # ChromaDBをベクトルストア（記憶の大図書館）として利用
-# Supabaseと連携させる場合、ChromaをSupabaseのPostgres拡張(pgvector)に接続する構成が理想
-# ここでは、デプロイ環境で永続化可能なディレクトリを指定
+# Supabase Functionsのファイルシステムは一時的なものなので、永続化には注意が必要。
+# Supabase Storageや外部の永続ディスクサービスと連携するのが理想的。
 vectorstore = Chroma(
     collection_name="memory_collection",
     embedding_function=embeddings,
-    persist_directory="./chroma_db_persistent" # Railwayや他の永続ストレージ上のパス
+    persist_directory="./chroma_db_persistent"
 )
 logging.info(f"Vector store initialized. Collection: {vectorstore._collection.name}")
 
@@ -85,6 +87,7 @@ class QueryResponse(BaseModel):
     status: str = "success"
     documents: List[str] = Field(..., description="検索クエリに最も関連性の高い記憶の断片リスト。")
 
+
 # --- 5. 基本的な記憶の読み書きAPI (Core Memory Endpoints) ---
 
 @app.post("/learn", response_model=LearnResponse, tags=["Memory"])
@@ -98,25 +101,25 @@ async def learn_document(request: LearnRequest):
     try:
         logging.info(f"新しい知識の学習を開始します。ソース: {request.metadata.get('source', 'Unknown')}")
         
-        # テキストをチャンクに分割
         docs = text_splitter.create_documents([request.text_content], metadatas=[request.metadata])
-        
-        # ベクトルストアにチャンクを追加
         vectorstore.add_documents(docs)
-        vectorstore.persist()  # 変更をディスクに永続化
         
+        try:
+             vectorstore.persist()
+             logging.info("Vector storeの永続化に成功しました。")
+        except Exception as persist_error:
+             logging.warning(f"Vector storeの永続化中に警告: {persist_error}。Supabase Functionsのファイルシステムは一時的な可能性があります。")
+
         logging.info(f"{len(docs)}個のチャンクをベクトルストアに正常に追加しました。")
 
-        # Supabaseのテーブルにも学習履歴を記録
         try:
             response = supabase.table('learning_log').insert({
-                "content_snippet": request.text_content[:250], # 最初の250文字をスニペットとして保存
+                "content_snippet": request.text_content[:250],
                 "metadata": request.metadata
             }).execute()
             logging.info("Supabaseの`learning_log`への記録に成功しました。")
         except Exception as db_error:
             logging.warning(f"Supabaseの`learning_log`への記録中に警告: {db_error}")
-            # DBへのログ記録は失敗しても、学習自体は成功したとみなす
 
         return LearnResponse(
             message="Knowledge successfully acquired and stored in the vector temple.",
@@ -136,12 +139,10 @@ async def query_memory(request: QueryRequest):
     try:
         logging.info(f"記憶の検索を実行します。クエリ: 「{request.query_text}」")
         
-        # 類似度検索を実行 (k=取得するチャンク数)
         docs = vectorstore.similarity_search(request.query_text, k=5)
-        
         response_docs = [doc.page_content for doc in docs]
-        logging.info(f"問い合わせに対して{len(response_docs)}件の関連する記憶を返却します。")
         
+        logging.info(f"問い合わせに対して{len(response_docs)}件の関連する記憶を返却します。")
         return QueryResponse(documents=response_docs)
     except Exception as e:
         logging.error(f"記憶の検索(/query)中にエラーが発生しました: {e}", exc_info=True)
@@ -152,9 +153,9 @@ async def root():
     """
     APIサーバーの生存確認用エンドポイント。
     """
-    return {"message": "Learner is awake. The soul is waiting for a command from the master, imazine."}
+    return {"message": "Learner is awake. The soul of imazine's world is waiting for a command."}
 
-# learner_main.py (ver.Ω - The Omega Version)
+# learner_main.py (ver.Ω+ - The True Final Version)
 # Part 2/2: Advanced Functions for Style, Emotion, and Growth
 
 # --- 6. 高度な機能のAPIモデル定義 (Pydantic Models for Advanced Features) ---
@@ -169,7 +170,7 @@ class StyleLearnResponse(BaseModel):
     learned_style_id: int
 
 class CharacterState(BaseModel):
-    user_id: str = "imazine" # 固定
+    user_id: str = "imazine"
     character_name: str = Field(..., description="対象キャラクター名（'みらい' or 'へー子'）。")
     mood: str = Field(..., description="更新後のキャラクターの機嫌。")
     last_interaction_summary: str = Field(..., description="直前のimazineとのやり取りの短い要約。")
@@ -186,6 +187,21 @@ class CharacterStateQueryResponse(BaseModel):
     status: str = "success"
     states: Dict[str, Dict[str, Any]] = Field(..., description="キャラクター名ごとの現在の状態。")
 
+class Concern(BaseModel):
+    user_id: str = "imazine"
+    concern_text: str
+
+class ConcernLogResponse(BaseModel):
+    status: str = "success"
+    concern_id: int
+
+class UnresolvedConcernResponse(BaseModel):
+    status: str = "success"
+    concerns: List[Dict[str, Any]]
+
+class ResolveConcernRequest(BaseModel):
+    concern_id: int
+
 
 # --- 7. 画風・感情・成長を司るAPI (Endpoints for Style, Emotion, and Growth) ---
 
@@ -196,9 +212,8 @@ async def learn_style(request: StyleLearnRequest):
     """
     try:
         logging.info(f"新しい画風の学習を開始します。ソースURL: {request.image_url}")
-
-        # ここに、将来的には画像URLからスタイルを分析するAI(Gemini Visionなど)を呼び出すロジックを実装可能
-        # 今回は、URLとプロンプトをキーワードとして保存する
+        
+        # 将来的にはVision APIで画像自体を分析し、キーワードを自動生成する拡張も可能
         style_description = f"Style from image: {request.image_url}"
         if request.source_prompt:
             style_description += f" | Original Prompt: {request.source_prompt}"
@@ -224,10 +239,8 @@ async def learn_style(request: StyleLearnRequest):
 async def get_style_palette():
     """
     現在学習済みの画風（スタイル）の記述リストを取得する。
-    Botはこれを画像生成時のプロンプトに組み込む。
     """
     try:
-        # 直近に学習した5つのスタイル記述を取得
         response = supabase.table('style_palette').select("style_description").order('created_at', desc=True).limit(5).execute()
 
         if not response.data:
@@ -236,7 +249,6 @@ async def get_style_palette():
         style_descriptions = [item['style_description'] for item in response.data]
         logging.info(f"{len(style_descriptions)}件のスタイル記述を取得しました。")
         
-        # ここではキーワードではなく、説明文そのものを返す
         return QueryResponse(documents=style_descriptions)
     except Exception as e:
         logging.error(f"スタイルパレット取得(/get_style_palette)中にエラーが発生しました: {e}", exc_info=True)
@@ -249,15 +261,18 @@ async def update_character_states(request: CharacterStateUpdateRequest):
     """
     try:
         update_count = 0
+        records_to_upsert = []
         for state in request.states:
-            # upsert=Trueにより、同じuser_idとcharacter_nameの組み合わせがあれば更新、なければ挿入
-            supabase.table('character_states').upsert({
+            records_to_upsert.append({
                 "user_id": state.user_id,
                 "character_name": state.character_name,
                 "mood": state.mood,
                 "last_interaction_summary": state.last_interaction_summary
-            }, on_conflict='user_id, character_name').execute()
-            update_count += 1
+            })
+        
+        if records_to_upsert:
+            supabase.table('character_states').upsert(records_to_upsert, on_conflict='user_id, character_name').execute()
+            update_count = len(records_to_upsert)
         
         logging.info(f"{update_count}人のキャラクターの状態を更新しました。")
         return CharacterStateUpdateResponse(
@@ -267,7 +282,6 @@ async def update_character_states(request: CharacterStateUpdateRequest):
     except Exception as e:
         logging.error(f"キャラクター状態の更新(/update_character_states)中にエラー: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
-
 
 @app.get("/get_character_states", response_model=CharacterStateQueryResponse, tags=["Character Emotion"])
 async def get_character_states(user_id: str = "imazine"):
@@ -285,14 +299,48 @@ async def get_character_states(user_id: str = "imazine"):
                     "last_interaction_summary": item.get('last_interaction_summary', '特筆すべきやり取りはなかった。')
                 }
         
-        # デフォルト値を設定
-        if "みらい" not in states:
-            states["みらい"] = {"mood": "ニュートラル", "last_interaction_summary": "まだ会話が始まっていません。"}
-        if "へー子" not in states:
-            states["へー子"] = {"mood": "ニュートラル", "last_interaction_summary": "まだ会話が始まっていません。"}
+        if "みらい" not in states: states["みらい"] = {"mood": "ニュートラル", "last_interaction_summary": "まだ会話が始まっていません。"}
+        if "へー子" not in states: states["へー子"] = {"mood": "ニュートラル", "last_interaction_summary": "まだ会話が始まっていません。"}
             
         logging.info(f"ユーザー({user_id})のキャラクター状態を取得しました。")
         return CharacterStateQueryResponse(states=states)
     except Exception as e:
         logging.error(f"キャラクター状態の取得(/get_character_states)中にエラー: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+
+@app.post("/log_concern", response_model=ConcernLogResponse, tags=["Character Care"])
+async def log_concern(request: Concern):
+    """Botが検知したimazineの心配事をDBに記録する"""
+    try:
+        response = supabase.table('concerns').insert({
+            "user_id": request.user_id,
+            "concern_text": request.concern_text
+        }).execute()
+        new_id = response.data[0]['id']
+        logging.info(f"新しい心配事をID:{new_id}として記録しました。")
+        return ConcernLogResponse(concern_id=new_id)
+    except Exception as e:
+        logging.error(f"心配事の記録(/log_concern)中にエラー: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/get_unresolved_concerns", response_model=UnresolvedConcernResponse, tags=["Character Care"])
+async def get_unresolved_concerns(user_id: str = "imazine"):
+    """未解決の心配事を取得する"""
+    try:
+        response = supabase.table('concerns').select("*").eq('user_id', user_id).eq('is_resolved', False).order('created_at').limit(5).execute()
+        return UnresolvedConcernResponse(concerns=response.data)
+    except Exception as e:
+        logging.error(f"未解決の心配事の取得(/get_unresolved_concerns)中にエラー: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/resolve_concern", tags=["Character Care"])
+async def resolve_concern(request: ResolveConcernRequest):
+    """心配事が解決したことをマークする"""
+    try:
+        supabase.table('concerns').update({"is_resolved": True, "resolved_at": dt.datetime.now(dt.timezone.utc).isoformat()}).eq('id', request.concern_id).execute()
+        logging.info(f"心配事ID:{request.concern_id}を解決済みにマークしました。")
+        return {"status": "success", "message": "Concern marked as resolved."}
+    except Exception as e:
+        logging.error(f"心配事の解決(/resolve_concern)中にエラー: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
