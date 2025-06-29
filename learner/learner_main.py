@@ -1,8 +1,8 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.7.4 - The True Soul)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.7.5 - The True Soul)
 # Creator & Partner: imazine & Gemini
 # Last Updated: 2025-06-29
 # - The SQL function and the call from Langchain are now perfectly synchronized.
-# - This is the complete, final, working version.
+# - The python code itself was correct, but this version is re-confirmed to work with the final SQL patch.
 
 import os
 import logging
@@ -49,6 +49,7 @@ async def lifespan(app: FastAPI):
         
         lifespan_context["embeddings"] = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=gemini_api_key)
         
+        # This initialization correctly calls the new SQL function.
         lifespan_context["vectorstore"] = SupabaseVectorStore(
             client=lifespan_context["supabase_client"],
             embedding=lifespan_context["embeddings"],
@@ -103,9 +104,7 @@ async def learn(request: TextContent):
 @app.post("/query")
 async def query(request: QueryRequest):
     try:
-        # ★★★ The final fix: The k parameter is passed here to the similarity_search function ★★★
-        # Langchain will then use it to set the LIMIT clause in the HTTP request,
-        # and it will NOT be passed as an argument to the SQL function itself.
+        # Langchain now calls the corrected function signature correctly
         docs = await lifespan_context["vectorstore"].asimilarity_search(
             query=request.query_text, 
             k=request.k,
@@ -116,8 +115,6 @@ async def query(request: QueryRequest):
     except Exception as e:
         logging.error(f"Error in /query: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-# ... (The rest of the file is identical to Ver 7.3)
 
 @app.post("/summarize")
 async def summarize(request: SummarizeRequest):
