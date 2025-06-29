@@ -5,7 +5,7 @@
 import os
 import logging
 import datetime as dt
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
@@ -26,9 +26,11 @@ app = FastAPI(title="Learner API - The Soul of MIRAI-HEKO-Bot", version="4.0.0")
 try:
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not supabase_url or not supabase_key: raise ValueError("SupabaseのURL/キーが設定されていません。")
     supabase: Client = create_client(supabase_url, supabase_key)
     
     google_api_key = os.environ.get("GOOGLE_API_KEY")
+    if not google_api_key: raise ValueError("GOOGLE_API_KEYが設定されていません。")
     genai.configure(api_key=google_api_key)
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=google_api_key)
     
@@ -78,19 +80,35 @@ async def root(): return {"message": "Learner is awake. The soul of imazine's wo
 
 # --- 5. APIエンドポイント (高度な機能) ---
 
+STYLE_ANALYSIS_PROMPT = """
+あなたは世界クラスの美術評論家です。添付された画像と、それが生成されたプロンプト（あれば）を元に、この画像の芸術的スタイルを詳細に分析し、結果を厳密なJSON形式で出力してください。
+- 元プロンプト: {{source_prompt}}
+- 分析項目: 色彩(Color Palette), 光と影(Lighting & Shadow), 構図(Composition), 全体的な雰囲気(Overall Mood), 特徴的なキーワード(5個)
+"""
+
 @app.post("/styles", tags=["Style Palette"])
 async def analyze_and_learn_style(request: StyleLearnRequest):
     """画像からスタイルを分析し、`styles`テーブルに保存する"""
     try:
-        model = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
-        image_content = requests.get(request.image_url).content
+        logging.info(f"新しい画風の学習を開始します。ソースURL: {request.image_url}")
         
-        # あなたが提供してくださったSTYLE_ANALYSIS_PROMPT
-        prompt = STYLE_ANALYSIS_PROMPT.replace("{{original_prompt}}", request.source_prompt if request.source_prompt else "なし")
-        response = await model.generate_content_async([prompt, {"mime_type": "image/jpeg", "data": image_content}])
+        model = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
+        
+        # URLから画像データを取得
+        image_response = requests.get(request.image_url)
+        image_response.raise_for_status()
+        image_content = image_response.content
+
+        prompt = STYLE_ANALYSIS_PROMPT.replace("{{source_prompt}}", request.source_prompt if request.source_prompt else "なし")
+        
+        # Geminiに画像とプロンプトを渡して分析させる
+        response = await model.generate_content_async(
+            [prompt, {"mime_type": "image/jpeg", "data": image_content}]
+        )
         
         json_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL)
-        if not json_match: raise ValueError("Style analysis did not return valid JSON.")
+        if not json_match:
+            raise ValueError("Style analysis did not return valid JSON.")
         style_analysis_json = json.loads(json_match.group(1))
 
         insert_data = {
@@ -100,8 +118,11 @@ async def analyze_and_learn_style(request: StyleLearnRequest):
             "style_name": style_analysis_json.get("style_name", "Untitled Style")
         }
         res = supabase.table('styles').insert(insert_data).execute()
+        
         return {"status": "success", "style_id": res.data[0]['id']}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logging.error(f"スタイル学習(/styles)中にエラーが発生しました: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @app.get("/styles", tags=["Style Palette"])
 async def get_styles():
@@ -109,16 +130,19 @@ async def get_styles():
     try:
         res = supabase.table('styles').select("style_analysis_json").order('created_at', desc=True).limit(5).execute()
         return {"styles": [item['style_analysis_json'] for item in res.data]}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/character_state", tags=["Character Emotion"])
 async def update_character_state(request: CharacterState):
     """キャラクターの最新の感情状態でDBを更新する"""
     try:
-        supabase.table('character_states').delete().neq('id', 0).execute() # 常に1行だけ保持
+        # 常に最新の1行だけを保持する設計
+        supabase.table('character_states').delete().neq('id', 0).execute()
         supabase.table('character_states').insert(request.model_dump()).execute()
-        return {"status": "success"}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "success", "message": "Character state updated."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/character_state", tags=["Character Emotion"])
 async def get_character_state():
@@ -128,30 +152,33 @@ async def get_character_state():
         if res.data:
             return {"state": res.data[0]}
         else:
-            # データがない場合はデフォルト値を返す
             return {"state": {"mirai_mood": "ニュートラル", "heko_mood": "ニュートラル", "last_interaction_summary": "まだ会話が始まっていません。"}}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/concern", tags=["Character Care"])
 async def log_concern(request: Concern):
     try:
         res = supabase.table('concerns').insert({"user_id": request.user_id, "concern_text": request.concern_text}).execute()
         return {"status": "success", "concern_id": res.data[0]['id']}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/unresolved_concerns", tags=["Character Care"])
 async def get_unresolved_concerns(user_id: str = "imazine"):
     try:
         res = supabase.table('concerns').select("*").eq('user_id', user_id).is_('notified_at', 'null').order('created_at').limit(5).execute()
         return {"concerns": res.data}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/resolve_concern", tags=["Character Care"])
 async def mark_concern_notified(request: ResolveConcernRequest):
     try:
         supabase.table('concerns').update({"notified_at": dt.datetime.now(dt.timezone.utc).isoformat()}).eq('id', request.concern_id).execute()
         return {"status": "success"}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/gals_vocabulary", tags=["Vocabulary"])
 async def get_gals_vocabulary():
@@ -159,15 +186,20 @@ async def get_gals_vocabulary():
     try:
         res = supabase.table('gals_vocabulary').select("word, character_type").limit(30).execute()
         return {"vocabulary": res.data}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/magi_soul", tags=["Magi's Soul"])
 async def sync_magi_soul(request: MagiSoulSyncRequest):
     """Geminiとの対話の記録を、MAGIの魂として蓄積する"""
     try:
-        res = supabase.table('magi_soul').insert({"learned_from_filename": request.learned_from_filename, "soul_record": request.soul_record}).execute()
+        res = supabase.table('magi_soul').insert({
+            "learned_from_filename": request.learned_from_filename,
+            "soul_record": request.soul_record
+        }).execute()
         return {"status": "success", "record_id": res.data[0]['id']}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/magi_soul", tags=["Magi's Soul"])
 async def get_latest_magi_soul():
@@ -176,4 +208,5 @@ async def get_latest_magi_soul():
         res = supabase.table('magi_soul').select("soul_record").order('created_at', desc=True).limit(5).execute()
         records = [item['soul_record'] for item in res.data]
         return {"soul_record": "\n---\n".join(records)}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
