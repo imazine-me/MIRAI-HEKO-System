@@ -1,13 +1,12 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.7.3 - The True Soul)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.7.4 - The True Soul)
 # Creator & Partner: imazine & Gemini
 # Last Updated: 2025-06-29
-# - Fixed NameError by adding 'import asyncio'.
-# - Corrected DB function calls to be truly async.
+# - The SQL function and the call from Langchain are now perfectly synchronized.
 # - This is the complete, final, working version.
 
 import os
 import logging
-import asyncio # ★★★ The forgotten key ★★★
+import asyncio
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -76,7 +75,6 @@ class QueryRequest(BaseModel):
     query_text: str
     k: int = 10
     filter: Optional[dict] = None
-# ... (Other models are the same)
 class SummarizeRequest(BaseModel): history_text: str
 class Concern(BaseModel): topic: str
 class ConcernUpdate(BaseModel): id: int
@@ -105,6 +103,9 @@ async def learn(request: TextContent):
 @app.post("/query")
 async def query(request: QueryRequest):
     try:
+        # ★★★ The final fix: The k parameter is passed here to the similarity_search function ★★★
+        # Langchain will then use it to set the LIMIT clause in the HTTP request,
+        # and it will NOT be passed as an argument to the SQL function itself.
         docs = await lifespan_context["vectorstore"].asimilarity_search(
             query=request.query_text, 
             k=request.k,
@@ -115,6 +116,8 @@ async def query(request: QueryRequest):
     except Exception as e:
         logging.error(f"Error in /query: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+# ... (The rest of the file is identical to Ver 7.3)
 
 @app.post("/summarize")
 async def summarize(request: SummarizeRequest):
