@@ -162,7 +162,7 @@ raise HTTPException(status\_code=500, detail=str(e))
 @app.post("/summarize")
 async def summarize(request: SummarizeRequest):
 try:
-model = genai.GenerativeModel('gemini-1.5-flash-latest')
+model = genai.GenerativeModel('gemini-2.0-flash')
 prompt = f"以下の会話履歴を、次の会話で参照しやすいように、重要なキーワードや出来事を箇条書きで簡潔に要約してください。\\n\\n\# 会話履歴\\n{request.history\_text}"
 response = await model.generate\_content\_async(prompt)
 summary\_text = response.text.strip()
