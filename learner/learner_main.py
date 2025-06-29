@@ -283,3 +283,12 @@ async def retrieve_styles(user_id: str):
     except Exception as e:
         logging.error(f"Error in /retrieve-styles: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn, os
+    uvicorn.run(
+        "learner_main:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 8000)),  # ← ここで $PORT を使う！
+        workers=1
+    )
