@@ -293,4 +293,9 @@ if __name__ == "__main__":
         workers=1
     )
 
-python<br>@app.get("/")<br>async def root():<br> return {"status": "ok"}<br>
+# --- Health Check Endpoint ---
+@app.get("/health", status_code=200)
+async def health_check():
+    """A simple endpoint that returns a 200 OK status to indicate the service is alive."""
+    return {"status": "ok"}
+
