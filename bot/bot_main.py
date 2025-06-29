@@ -514,37 +514,61 @@ async def build_history(channel: discord.TextChannel, limit: int = 20) -> List[D
 
 # --- 7. プロアクティブ機能群 (Proactive Functions) ---
 
+# run_proactive_dialogue関数を、以下の、完全版で、置き換えてください。
+
 async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
     """
-    プロアクティブな対話を生成し、投稿するための共通関数
+    プロアクティブな対話を生成し、投稿するための共通関数。
+    メインの会話処理と同じ、ULTIMATE_PROMPTとJSON解析のロジックを使用する。
     """
     async with channel.typing():
         try:
-            # 最新のコンテキストを取得
-            recent_context = await ask_learner_to_remember("最近のimazineの関心事や会話のトピック")
-            weather_info = await get_weather("Takizawa")
+            # 1. 応答生成のための全てのコンテキストを準備
+            # (これはon_messageと全く同じプロセスです)
+            emotion = "ニュートラル" # プロアクティブなため、感情はニュートラルと仮定
+            character_states = await get_character_states()
+            relevant_context = await ask_learner_to_remember("最近のimazineの関心事や会話のトピック")
             magi_soul_record = await get_latest_magi_soul()
             gals_vocabulary = await get_gals_vocabulary()
-            character_states = await get_character_states()
             dialogue_example = await get_dialogue_examples()
 
-            # プロンプトに変数を埋め込む
-            # ULTIMATE_PROMPTの構造を模倣するが、よりシンプルなプロンプトで実行
-            final_prompt = (
-                f"{prompt}\n\n"
-                f"# 応答生成のための背景情報\n"
-                f"- imazineの現在地情報: {weather_info}\n"
-                f"- みらいの現在の気分: {character_states['mirai_mood']}\n"
-                f"- へー子の現在の気分: {character_states['heko_mood']}\n"
-                f"- 長期記憶からの関連情報: {recent_context}\n"
-                f"- MAGIの魂の記録: {magi_soul_record}\n"
-                f"- 参照すべき語彙: {gals_vocabulary}\n"
-                f"- 会話のお手本: {dialogue_example}"
+            # 2. ULTIMATE_PROMPTを組み立てる
+            # ここで、引数で渡された、個別のプロンプトを、ULTIMATE_PROMPTの、一番上に、結合します。
+            # これにより、基本的な人格は維持しつつ、状況に応じた指示を与えることができます。
+            final_system_prompt = (
+                f"# 追加指示\n{prompt}\n\n"
+                f"{ULTIMATE_PROMPT}"
+                .replace("{{CHARACTER_STATES}}", f"みらいの気分:{character_states['mirai_mood']}, へー子の気分:{character_states['heko_mood']}, 直前のやり取り:{character_states['last_interaction_summary']}")
+                .replace("{{EMOTION_CONTEXT}}", f"imazineの感情:{emotion}")
+                .replace("{{RELEVANT_MEMORY}}", relevant_context)
+                .replace("{{MAGI_SOUL_RECORD}}", magi_soul_record)
+                .replace("{{VOCABULARY_HINT}}", f"参照語彙:{gals_vocabulary}")
+                .replace("{{DIALOGUE_EXAMPLE}}", f"会話例:{dialogue_example}")
             )
 
-            response_text = await analyze_with_gemini(final_prompt, model_name=MODEL_PRO)
-            await channel.send(response_text)
-            logging.info(f"プロアクティブ対話を送信しました。")
+            # 3. Gemini APIを呼び出し、応答を生成
+            # プロアクティブな対話なので、履歴は空で渡します
+            model = genai.GenerativeModel(MODEL_PRO, system_instruction=final_system_prompt)
+            response = await model.generate_content_async([]) # 履歴なし
+            raw_response_text = response.text
+            logging.info(f"プロアクティブAIからの生応答: {raw_response_text[:300]}...")
+
+            # 4. 応答を解析し、Discordに投稿 (on_messageと全く同じプロセス)
+            json_match = re.search(r'```json\n({.*?})\n```', raw_response_text, re.DOTALL)
+            if json_match:
+                parsed_json = json.loads(json_match.group(1))
+                dialogue = parsed_json.get("dialogue", [])
+                formatted_response = ""
+                for part in dialogue:
+                    if line := part.get("line", "").strip():
+                        formatted_response += f"**{part.get('character')}**「{line}」\n"
+                if formatted_response:
+                    await channel.send(formatted_response.strip())
+                logging.info(f"プロアクティブ対話を送信しました。")
+            else:
+                # JSON形式でなかった場合は、そのままテキストを送信するフォールバック
+                logging.warning("プロアクティブ応答がJSON形式ではありませんでした。テキストとして送信します。")
+                await channel.send(raw_response_text)
 
         except Exception as e:
             logging.error(f"プロアクティブ対話の実行中にエラー: {e}", exc_info=True)
