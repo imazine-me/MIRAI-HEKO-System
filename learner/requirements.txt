@@ -6,3 +6,4 @@ langchain-google-genai
 google-generativeai
 supabase
 python-dotenv
+aiohttp>=3.8
