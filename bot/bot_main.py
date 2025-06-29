@@ -753,18 +753,12 @@ async def on_ready():
 
     # ★★★ ここからが、偽装工作の、心臓部です ★★★
     async def health_check_server():
-        app = aiohttp.web.Application()
-        async def health(request):
-            return aiohttp.web.Response(text="OK")
-        app.router.add_get("/health", health)
-        
-        runner = aiohttp.web.AppRunner(app)
-        await runner.setup()
-        # Railwayは、PORTという、環境変数で、待ち受けポートを、指定します
-        site = aiohttp.web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", 8080)))
-        await site.start()
-        logging.info(f"Health check server started on port {os.getenv('PORT', 8080)}")
-
+    app = web.Application()
+    app.add_routes([web.get("/health", lambda r: web.json_response({"ok": True}))])
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    await site.start()
     # Botの、メインの、魂と、並行して、小さな、心臓を、動かします
     asyncio.create_task(health_check_server())
     # ★★★ ここまでが、偽装工作の、心臓部です ★★★
