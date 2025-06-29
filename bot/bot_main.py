@@ -768,6 +768,8 @@ async def on_ready():
     scheduler.start()
     logging.info("全てのプロアクティブ機能のスケジューラを開始しました。")
 
+# on_message関数を、以下の、最新の、作法に、準拠した、コードで、完全に、置き換えてください。
+
 @client.event
 async def on_message(message: discord.Message):
     """
@@ -849,10 +851,13 @@ async def on_message(message: discord.Message):
             full_user_text = f"{user_query}\n\n--- 参照資料の要約 ---\n{extracted_summary}" if extracted_summary else user_query
             final_user_content_parts.append(Part.from_text(full_user_text))
 
+            # ★★★ ここが修正点です ★★★
+            # 添付画像の処理方法を、最新のライブラリの作法に修正
             if message.attachments and any(att.content_type.startswith("image/") for att in message.attachments):
                 image_attachment = next((att for att in message.attachments if att.content_type.startswith("image/")), None)
                 if image_attachment:
                     image_bytes = await image_attachment.read()
+                    # `mime_type`は、Part.from_dataの外で、辞書として渡すのが正しい作法です。
                     image_part = {"mime_type": image_attachment.content_type, "data": image_bytes}
                     final_user_content_parts.append(image_part)
 
@@ -862,7 +867,9 @@ async def on_message(message: discord.Message):
             relevant_context = await ask_learner_to_remember(user_query)
             magi_soul_record = await get_latest_magi_soul()
             gals_vocabulary = await get_gals_vocabulary()
-            dialogue_example = await get_dialogue_examples()
+            
+            # TODO: dialogue_examplesの取得とプロンプトへの挿入
+            dialogue_example = "" # placeholder
 
             system_prompt = ULTIMATE_PROMPT.replace("{{CHARACTER_STATES}}", f"みらいの気分:{character_states['mirai_mood']}, へー子の気分:{character_states['heko_mood']}, 直前のやり取り:{character_states['last_interaction_summary']}")\
                                            .replace("{{EMOTION_CONTEXT}}", f"imazineの感情:{emotion}")\
@@ -874,7 +881,7 @@ async def on_message(message: discord.Message):
             # 3. Gemini APIを呼び出し
             history = await build_history(message.channel, limit=15)
             model = genai.GenerativeModel(MODEL_PRO)
-            # ★★★ 修正点 ★★★
+            # ★★★ ここが修正点です ★★★
             # system_instructionではなく、コンテンツの先頭にシステムプロンプトを配置します
             all_content = [{'role': 'system', 'parts': [system_prompt]}] + history + [{'role': 'user', 'parts': final_user_content_parts}]
             response = await model.generate_content_async(all_content)
@@ -895,7 +902,7 @@ async def on_message(message: discord.Message):
             else:
                 logging.error("AIからの応答が期待したJSON形式ではありませんでした。")
 
-            # 5. 事後処理
+            # 5. 事後処理（非同期タスク）
             history_text = "\n".join([f"{h['role']}: {h['parts'][0]}" for h in history[-5:]] + [f"user: {user_query}"])
             
             meta_analysis_text = await analyze_with_gemini(META_ANALYSIS_PROMPT.replace("{{conversation_history}}", history_text))
