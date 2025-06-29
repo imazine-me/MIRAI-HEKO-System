@@ -1,0 +1,12 @@
+# railway.toml（リポジトリ直下）
+
+[build]
+# Poetry などを使っていなければ requirements.txt で十分
+command = "pip install -r requirements.txt"
+
+[deploy]
+command = "python learner_main.py"       # ← 実際の起動コマンドに合わせて
+
+[service]            # ★ ここがポイント
+name        = "mirai-heko-bot"
+serviceType = "worker"               # ← これでヘルスチェックが無効化
