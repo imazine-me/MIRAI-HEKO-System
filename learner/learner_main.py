@@ -1,7 +1,9 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.Ω - The Omega)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.Ω-Kai - The Restored & Optimized Soul)
 # Creator & Partner: imazine & Gemini
-# Finalized with the ultimate insights from a fellow AI.
-# This version is stable, robust, and truly production-ready.
+# Last Updated: 2025-06-29
+# - Fixed critical NameError for 'CharacterStateUpdate' and 'SummarizeRequest'.
+# - All synchronous I/O operations are now safely handled in a fixed-size thread pool.
+# - This version is stable, robust, and truly production-ready.
 
 import os
 import logging
@@ -93,6 +95,9 @@ class QueryRequest(BaseModel):
     k: int = 10
     filter: Dict = Field(default_factory=dict)
 
+class VocabularyUpdate(BaseModel):
+    words_used: List[str]
+
 class SimilarityResponse(BaseModel):
     content: str
     metadata: Optional[Dict] = None
@@ -101,9 +106,12 @@ class SimilarityResponse(BaseModel):
 class TextContent(BaseModel):
     text_content: str
     
-# ★★★ CRITICAL FIX: The missing model that caused NameError ★★★
+# ★★★ CRITICAL FIX: The missing models that caused NameError ★★★
 class SummarizeRequest(BaseModel):
     history_text: str
+
+class CharacterStateUpdate(BaseModel):
+    states: Dict[str, str]
 
 class Concern(BaseModel):
     user_id: str
@@ -133,7 +141,6 @@ async def query(request: QueryRequest):
     """The query endpoint, now using the correct synchronous method in a thread and returning similarity."""
     try:
         vectorstore = lifespan_context['vectorstore']
-        # ★★★ Improvement: Use getattr for fallback between langchain versions for better compatibility ★★★
         search_fn = getattr(vectorstore, 'similarity_search_with_relevance_scores', vectorstore.similarity_search_with_score)
         
         results = await run_sync_in_thread(search_fn, request.query_text, k=request.k, filter=request.filter)
@@ -150,12 +157,10 @@ async def query(request: QueryRequest):
 @app.post("/learn", status_code=200)
 async def learn(request: TextContent):
     try:
-        # Guard against Out-of-Memory on very large inputs
         texts = lifespan_context["text_splitter"].split_text(request.text_content)[:500]
         if not texts:
             return {"message": "No text to learn."}
 
-        # Add unique IDs to prevent duplicate chunk registration
         ids = [hashlib.sha256(text.encode()).hexdigest() for text in texts]
         await run_sync_in_thread(lifespan_context["vectorstore"].add_texts, texts=texts, ids=ids)
         logging.info(f"Learned and indexed {len(texts)} new chunks.")
@@ -192,10 +197,13 @@ async def get_character_states(user_id: str):
 @app.post("/character-states", status_code=200)
 async def update_character_states(request: CharacterStateUpdate):
     try:
-        db_call = lambda: lifespan_context["supabase_client"].table('character_states').upsert(request.dict()).execute()
+        data = {'id': 1, **request.states}                # ★ 固定ID運用
+        db_call = lambda: lifespan_context["supabase_client"]\
+                          .table('character_states').upsert(data).execute()
         await run_sync_in_thread(db_call)
         return {"message": "State updated successfully"}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/vocabulary")
 async def get_vocabulary():
