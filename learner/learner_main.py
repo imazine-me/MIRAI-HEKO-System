@@ -292,3 +292,5 @@ if __name__ == "__main__":
         port=int(os.getenv("PORT", 8000)),  # ← ここで $PORT を使う！
         workers=1
     )
+
+python<br>@app.get("/")<br>async def root():<br> return {"status": "ok"}<br>
