@@ -750,6 +750,24 @@ async def on_ready():
     dialogue_data = await fetch_from_learner("/dialogue-examples")
     if dialogue_data: client.dialogue_examples = dialogue_data.get("examples", [])
     logging.info(f"Loaded {len(client.gals_words)} words and {len(client.dialogue_examples)} examples.")
+
+    # ★★★ ここからが、偽装工作の、心臓部です ★★★
+    async def health_check_server():
+        app = aiohttp.web.Application()
+        async def health(request):
+            return aiohttp.web.Response(text="OK")
+        app.router.add_get("/health", health)
+        
+        runner = aiohttp.web.AppRunner(app)
+        await runner.setup()
+        # Railwayは、PORTという、環境変数で、待ち受けポートを、指定します
+        site = aiohttp.web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", 8080)))
+        await site.start()
+        logging.info(f"Health check server started on port {os.getenv('PORT', 8080)}")
+
+    # Botの、メインの、魂と、並行して、小さな、心臓を、動かします
+    asyncio.create_task(health_check_server())
+    # ★★★ ここまでが、偽装工作の、心臓部です ★★★
     
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     # The full scheduler from v6.0 is restored here
@@ -835,3 +853,9 @@ if __name__ == "__main__":
                 loop.create_task(client.http_session.close())
             else:
                 loop.run_until_complete(client.http_session.close())
+
+# --- Health Check Endpoint ---
+@app.get("/health", status_code=200)
+async def health_check():
+    """A simple endpoint that returns a 200 OK status to indicate the service is alive."""
+    return {"status": "ok"}
