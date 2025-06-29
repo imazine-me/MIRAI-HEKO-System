@@ -1,9 +1,7 @@
-# MIRAI-HEKO-Learner/learner_main.py (Ver.Ω-Kai - The Restored & Optimized Soul)
+# MIRAI-HEKO-Learner/learner_main.py (Ver.Ω - The Omega)
 # Creator & Partner: imazine & Gemini
-# Last Updated: 2025-06-29
-# - Fixed critical NameError for 'CharacterStateUpdate' and 'SummarizeRequest'.
-# - All synchronous I/O operations are now safely handled in a fixed-size thread pool.
-# - This version is stable, robust, and truly production-ready.
+# Finalized with the ultimate insights from a fellow AI.
+# This version is stable, robust, and truly production-ready.
 
 import os
 import logging
@@ -28,7 +26,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # --- Global Context & Optimized Thread Pool ---
 lifespan_context: Dict[str, Any] = {}
-# ★★★ To prevent resource exhaustion, the thread pool size is explicitly controlled. ★★★
+# To prevent resource exhaustion under high load, a thread pool with a fixed number of workers is introduced.
 thread_executor = ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 1) * 2), thread_name_prefix="learner_sync_worker")
 
 def get_env_variable(var_name: str, is_critical: bool = True, default: Optional[str] = None) -> Optional[str]:
@@ -40,6 +38,7 @@ def get_env_variable(var_name: str, is_critical: bool = True, default: Optional[
 
 # --- Helper for Truly Async DB calls ---
 async def run_sync_in_thread(func, *args, **kwargs) -> Any:
+    """Run a synchronous function in a separate thread to avoid blocking."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(thread_executor, lambda: func(*args, **kwargs))
 
@@ -49,7 +48,7 @@ async def check_rpc_signature(db_client: Client):
     try:
         logging.info("Performing a startup check on the 'match_documents' DB function...")
         dummy_embedding = [0.0] * 768
-        # ★★★ CRITICAL FIX: The .execute() call must be inside the lambda to be run in the thread. ★★★
+        # The .execute() call must be inside the lambda to be run in the thread.
         await run_sync_in_thread(
             lambda: db_client.rpc('match_documents', {'query_embedding': dummy_embedding}).execute()
         )
@@ -89,14 +88,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# --- Pydantic Models ---
+# --- Pydantic Models (PEP8 Compliant & Corrected) ---
 class QueryRequest(BaseModel):
     query_text: str
     k: int = 10
     filter: Dict = Field(default_factory=dict)
-
-class VocabularyUpdate(BaseModel):
-    words_used: List[str]
 
 class SimilarityResponse(BaseModel):
     content: str
@@ -106,11 +102,11 @@ class SimilarityResponse(BaseModel):
 class TextContent(BaseModel):
     text_content: str
     
-# ★★★ CRITICAL FIX: The missing models that caused NameError ★★★
 class SummarizeRequest(BaseModel):
     history_text: str
 
 class CharacterStateUpdate(BaseModel):
+    user_id: str
     states: Dict[str, str]
 
 class Concern(BaseModel):
@@ -134,13 +130,13 @@ class StyleData(BaseModel):
     source_prompt: str
     source_image_url: str
 
-
 # --- API Endpoints ---
 @app.post("/query", response_model=List[SimilarityResponse])
 async def query(request: QueryRequest):
     """The query endpoint, now using the correct synchronous method in a thread and returning similarity."""
     try:
         vectorstore = lifespan_context['vectorstore']
+        # Use getattr for fallback between langchain versions for better compatibility
         search_fn = getattr(vectorstore, 'similarity_search_with_relevance_scores', vectorstore.similarity_search_with_score)
         
         results = await run_sync_in_thread(search_fn, request.query_text, k=request.k, filter=request.filter)
@@ -157,10 +153,12 @@ async def query(request: QueryRequest):
 @app.post("/learn", status_code=200)
 async def learn(request: TextContent):
     try:
+        # Guard against Out-of-Memory on very large inputs
         texts = lifespan_context["text_splitter"].split_text(request.text_content)[:500]
         if not texts:
             return {"message": "No text to learn."}
 
+        # Add unique IDs to prevent duplicate chunk registration
         ids = [hashlib.sha256(text.encode()).hexdigest() for text in texts]
         await run_sync_in_thread(lifespan_context["vectorstore"].add_texts, texts=texts, ids=ids)
         logging.info(f"Learned and indexed {len(texts)} new chunks.")
@@ -172,7 +170,7 @@ async def learn(request: TextContent):
 @app.post("/summarize")
 async def summarize(request: SummarizeRequest):
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         prompt = f"以下の会話履歴を、次の会話で参照しやすいように、重要なキーワードや出来事を箇条書きで簡潔に要約してください。\n\n# 会話履歴\n{request.history_text}"
         response = await model.generate_content_async(prompt)
         summary_text = response.text.strip()
@@ -184,26 +182,24 @@ async def summarize(request: SummarizeRequest):
         return {"summary": summary_text}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
-# ... (The rest of the endpoints are also wrapped in run_sync_in_thread for safety)
 @app.get("/character-states")
 async def get_character_states(user_id: str):
     try:
-        db_call = lambda: lifespan_context["supabase_client"].table('character_states').select('*').eq('user_id', user_id).limit(1).single().execute()
+        db_call = lambda: lifespan_context["supabase_client"].table('character_states').select('states').eq('user_id', user_id).limit(1).single().execute()
         response = await run_sync_in_thread(db_call)
         return response.data
     except Exception:
-        return {"last_interaction_summary": "まだ会話が始まっていません。", "mirai_mood": "ニュートラル", "heko_mood": "ニュートラル"}
+        return {"states": {"last_interaction_summary": "まだ会話が始まっていません。", "mirai_mood": "ニュートラル", "heko_mood": "ニュートラル"}}
 
 @app.post("/character-states", status_code=200)
 async def update_character_states(request: CharacterStateUpdate):
     try:
-        data = {'id': 1, **request.states}                # ★ 固定ID運用
-        db_call = lambda: lifespan_context["supabase_client"]\
-                          .table('character_states').upsert(data).execute()
+        # Use upsert to create or update the character state.
+        # The 'user_id' column must have a UNIQUE constraint for this to work reliably.
+        db_call = lambda: lifespan_context["supabase_client"].table('character_states').upsert(request.dict(), on_conflict='user_id').execute()
         await run_sync_in_thread(db_call)
         return {"message": "State updated successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/vocabulary")
 async def get_vocabulary():
@@ -261,7 +257,7 @@ async def log_learning_history(request: LearningHistory):
         
 @app.post("/memorize-style", status_code=200)
 async def memorize_style(request: StyleData):
-    """「🎨」リアクションで学習した画風をデータベースに保存します"""
+    """Saves a learned image style to the database."""
     try:
         await run_sync_in_thread(
             lambda: lifespan_context["supabase_client"].table('learned_styles').insert(request.dict()).execute()
@@ -274,7 +270,7 @@ async def memorize_style(request: StyleData):
 
 @app.get("/retrieve-styles", response_model=List[Dict])
 async def retrieve_styles(user_id: str):
-    """特定のユーザーが学習させた画風のリストを取得します"""
+    """Retrieves a list of learned styles for a specific user."""
     try:
         response = await run_sync_in_thread(
             lambda: lifespan_context["supabase_client"].table('learned_styles').select('*').eq('user_id', user_id).execute()
@@ -283,19 +279,3 @@ async def retrieve_styles(user_id: str):
     except Exception as e:
         logging.error(f"Error in /retrieve-styles: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-if __name__ == "__main__":
-    import uvicorn, os
-    uvicorn.run(
-        "learner_main:app",
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", 8000)),  # ← ここで $PORT を使う！
-        workers=1
-    )
-
-# --- Health Check Endpoint ---
-@app.get("/health", status_code=200)
-async def health_check():
-    """A simple endpoint that returns a 200 OK status to indicate the service is alive."""
-    return {"status": "ok"}
-
