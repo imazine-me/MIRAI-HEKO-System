@@ -82,7 +82,7 @@ async def root(): return {"message": "Learner is awake. The soul of imazine's wo
 async def analyze_and_learn_style(request: StyleLearnRequest):
     """画像からスタイルを分析し、`styles`テーブルに保存する"""
     try:
-        model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        model = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
         image_content = requests.get(request.image_url).content
         
         # あなたが提供してくださったSTYLE_ANALYSIS_PROMPT
