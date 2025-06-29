@@ -11,6 +11,7 @@ from typing import List, Dict, Optional, Any
 
 import google.generativeai as genai
 import discord
+import aiohttp
 from aiohttp import web
 from bs4 import BeautifulSoup
 import re
