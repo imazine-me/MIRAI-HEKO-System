@@ -514,8 +514,6 @@ async def build_history(channel: discord.TextChannel, limit: int = 20) -> List[D
 
 # --- 7. プロアクティブ機能群 (Proactive Functions) ---
 
-# run_proactive_dialogue関数を、以下の、完全版で、置き換えてください。
-
 async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
     """
     プロアクティブな対話を生成し、投稿するための共通関数。
@@ -524,8 +522,7 @@ async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
     async with channel.typing():
         try:
             # 1. 応答生成のための全てのコンテキストを準備
-            # (これはon_messageと全く同じプロセスです)
-            emotion = "ニュートラル" # プロアクティブなため、感情はニュートラルと仮定
+            emotion = "ニュートラル"
             character_states = await get_character_states()
             relevant_context = await ask_learner_to_remember("最近のimazineの関心事や会話のトピック")
             magi_soul_record = await get_latest_magi_soul()
@@ -533,9 +530,7 @@ async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
             dialogue_example = await get_dialogue_examples()
 
             # 2. ULTIMATE_PROMPTを組み立てる
-            # ここで、引数で渡された、個別のプロンプトを、ULTIMATE_PROMPTの、一番上に、結合します。
-            # これにより、基本的な人格は維持しつつ、状況に応じた指示を与えることができます。
-            final_system_prompt = (
+            system_prompt = (
                 f"# 追加指示\n{prompt}\n\n"
                 f"{ULTIMATE_PROMPT}"
                 .replace("{{CHARACTER_STATES}}", f"みらいの気分:{character_states['mirai_mood']}, へー子の気分:{character_states['heko_mood']}, 直前のやり取り:{character_states['last_interaction_summary']}")
@@ -546,14 +541,15 @@ async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
                 .replace("{{DIALOGUE_EXAMPLE}}", f"会話例:{dialogue_example}")
             )
 
-            # 3. Gemini APIを呼び出し、応答を生成
-            # プロアクティブな対話なので、履歴は空で渡します
-            model = genai.GenerativeModel(MODEL_PRO, system_instruction=final_system_prompt)
-            response = await model.generate_content_async([]) # 履歴なし
+            # 3. Gemini APIを呼び出し
+            model = genai.GenerativeModel(MODEL_PRO)
+            # ★★★ 修正点 ★★★
+            # system_instructionではなく、コンテンツの先頭にシステムプロンプトを配置します
+            response = await model.generate_content_async([{'role': 'system', 'parts': [system_prompt]}])
             raw_response_text = response.text
             logging.info(f"プロアクティブAIからの生応答: {raw_response_text[:300]}...")
 
-            # 4. 応答を解析し、Discordに投稿 (on_messageと全く同じプロセス)
+            # 4. 応答を解析し、投稿
             json_match = re.search(r'```json\n({.*?})\n```', raw_response_text, re.DOTALL)
             if json_match:
                 parsed_json = json.loads(json_match.group(1))
@@ -566,7 +562,6 @@ async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
                     await channel.send(formatted_response.strip())
                 logging.info(f"プロアクティブ対話を送信しました。")
             else:
-                # JSON形式でなかった場合は、そのままテキストを送信するフォールバック
                 logging.warning("プロアクティブ応答がJSON形式ではありませんでした。テキストとして送信します。")
                 await channel.send(raw_response_text)
 
@@ -773,7 +768,6 @@ async def on_ready():
     scheduler.start()
     logging.info("全てのプロアクティブ機能のスケジューラを開始しました。")
 
-
 @client.event
 async def on_message(message: discord.Message):
     """
@@ -854,6 +848,7 @@ async def on_message(message: discord.Message):
             # メッセージ構築
             full_user_text = f"{user_query}\n\n--- 参照資料の要約 ---\n{extracted_summary}" if extracted_summary else user_query
             final_user_content_parts.append(Part.from_text(full_user_text))
+
             if message.attachments and any(att.content_type.startswith("image/") for att in message.attachments):
                 image_attachment = next((att for att in message.attachments if att.content_type.startswith("image/")), None)
                 if image_attachment:
@@ -876,10 +871,13 @@ async def on_message(message: discord.Message):
                                            .replace("{{VOCABULARY_HINT}}", f"参照語彙:{gals_vocabulary}")\
                                            .replace("{{DIALOGUE_EXAMPLE}}", f"会話例:{dialogue_example}")
 
-            # 3. Gemini API呼び出し
+            # 3. Gemini APIを呼び出し
             history = await build_history(message.channel, limit=15)
-            model = genai.GenerativeModel(MODEL_PRO, system_instruction=system_prompt)
-            response = await model.generate_content_async(history + [{'role': 'user', 'parts': final_user_content_parts}])
+            model = genai.GenerativeModel(MODEL_PRO)
+            # ★★★ 修正点 ★★★
+            # system_instructionではなく、コンテンツの先頭にシステムプロンプトを配置します
+            all_content = [{'role': 'system', 'parts': [system_prompt]}] + history + [{'role': 'user', 'parts': final_user_content_parts}]
+            response = await model.generate_content_async(all_content)
             raw_response_text = response.text
             logging.info(f"AIからの生応答: {raw_response_text[:300]}...")
 
@@ -894,8 +892,6 @@ async def on_message(message: discord.Message):
                         formatted_response += f"**{part.get('character')}**「{line}」\n"
                 if formatted_response:
                     await message.channel.send(formatted_response.strip())
-                
-                # ... (画像生成の提案ロジック) ...
             else:
                 logging.error("AIからの応答が期待したJSON形式ではありませんでした。")
 
@@ -916,7 +912,6 @@ async def on_message(message: discord.Message):
 
         except Exception as e:
             logging.error(f"会話処理のメインループで予期せぬエラー: {e}", exc_info=True)
-
 
 @client.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
