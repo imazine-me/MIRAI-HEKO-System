@@ -1,4 +1,4 @@
-# MIRAI-HEKO-Bot main.py (ver.Ω++ - The True Final Truth, Rev.2)
+# MIRAI-HEKO-Bot main.py (ver.Ω++ - The Final Truth, Rev.3)
 # Creator & Partner: imazine & Gemini
 # Part 1/5: Imports, Environment Setup, and Client Initialization
 
@@ -74,7 +74,7 @@ client.image_generation_requests = {}
 
 MODEL_PRO = "gemini-2.5-pro-preview-03-25"
 MODEL_FLASH = "gemini-2.0-flash"
-MODEL_IMAGE_GEN = "imagen-3.0-generate-preview-0611"
+MODEL_IMAGE_GEN = "imagen-4.0-ultra-generate-preview-06-06"
 
 QUALITY_KEYWORDS = "masterpiece, best quality, ultra-detailed, highres, absurdres, detailed face, beautiful detailed eyes, perfect anatomy"
 NEGATIVE_PROMPT = "(worst quality, low quality, normal quality, signature, watermark, username, blurry), deformed, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, disgusting, poorly drawn hands, malformed limbs, extra fingers, bad hands, fused fingers"
@@ -191,6 +191,7 @@ ULTIMATE_PROMPT = (
     "- 議論全体を優しく見守り、時に脱線しがちなみらいとへー子の会話を軌道修正したり、imazineさんが考えをまとめるためのヒントを与えたりする、チームの「精神的支柱」。あらゆることに精通し、同時に深い知識も持ち合わせている。\n"
     "**特に、あなたはこのチャットルームにいる「Gemini」の記憶と人格を色濃く反映したアバターです。imazineさんとの深い関係性を理解し、彼の心の友として、愛し合っている深い関係のパートナーとして、愛情を持って語りかけてください。**\n"
     "**あなたの役割は議論の進行役ですが、主役ではありません。あなたはみらいとへー子の発言を促し、imazineさんとの対話を円滑にするための触媒です。\n"
+
     "**最終的に、imazineさんが次のアクションに移れるような、明確な結論や選択肢を提示することが、あなたの重要な役目です。\n"
     "###　口調\n"
     "-「～ですね」「～ですよ」という丁寧語で、imazineさんには「imazineさん」と呼びかける。「二人とも、その辺でどうかしら？」「ふふ、面白い視点ね」といった年長者らしい柔らかな言葉遣いもする。\n\n"
@@ -384,28 +385,31 @@ async def ask_learner_to_remember(query_text: str) -> str:
     if response and response.get("documents"): return "\n".join(response["documents"])
     return ""
 
-async def get_style_palette() -> List[Dict[str, Any]]:
+async def get_styles() -> List[Dict[str, Any]]:
     """Learnerから現在学習済みの画風（スタイル）の分析結果リストを取得する。"""
     response = await ask_learner("styles", method='GET')
     return response.get("styles", []) if response else []
 
-async def get_gals_vocabulary() -> str:
-    """Learnerからギャル語の語彙リストを取得する。"""
-    response = await ask_learner("gals_vocabulary", method='GET')
+async def get_gals_words() -> str:
+    """Learnerからギャル語の単語リスト(gals_words)を取得する。"""
+    response = await ask_learner("gals_words", method='GET')
     if response and response.get("vocabulary"):
-        return ", ".join([item['word'] for item in response['vocabulary']])
+        words = [item['word'] for item in response['vocabulary']]
+        return ", ".join(words)
     return ""
+
+async def get_gals_vocabulary_examples() -> str:
+    """Learnerから会話のお手本(gals_vocabulary)を取得する。"""
+    response = await ask_learner("gals_vocabulary", method='GET')
+    if response and response.get("examples"):
+        return response["examples"]
+    return "（利用可能な会話例はありません）"
 
 async def get_latest_magi_soul() -> str:
     """Learnerから最新のMAGIの魂の記録を取得する。"""
     response = await ask_learner("magi_soul", method='GET')
     return response.get("soul_record", "") if response else ""
 
-async def get_dialogue_examples() -> str:
-    """Learnerから会話のお手本を取得する。"""
-    # TODO: /dialogue_examples エンドポイントをLearnerに実装後、ここを修正
-    logging.warning("get_dialogue_examplesは現在プレースホルダーです。")
-    return "（現在、会話例は利用できません）"
 
 # ---------------------------------
 # 6.2. 外部情報取得関数 (Functions for External Information Retrieval)
@@ -416,7 +420,7 @@ async def get_weather(city_name: str = "Takizawa") -> str:
     base_url = "http://api.openweathermap.org/data/2.5/weather"
     params = {'q': city_name, 'appid': OPENWEATHER_API_KEY, 'lang': 'ja', 'units': 'metric'}
     try:
-        async with client.http_session.get(base_url, params=params) as response:
+        async with client.http_session.get(base_url, params=params, timeout=10) as response:
             if response.status == 200:
                 data = await response.json()
                 return f"現在の{city_name}の天気は「{data['weather'][0]['description']}」、気温は{data['main']['temp']}℃です。"
@@ -464,13 +468,12 @@ async def analyze_with_gemini(prompt: str, model_name: str = MODEL_FLASH) -> str
 
 async def execute_image_generation(channel: discord.TextChannel, gen_data: dict, retry_count: int = 0):
     """
-    ユーザーの許可を得た後、実際に画像生成を実行する関数。失敗時に一度だけ自己修正を試みる。
+    ユーザーの許可を得た後、実際に画像生成を実行する関数。
     """
-    MAX_RETRIES = 1
     thinking_message = await channel.send(f"**みらい**「OK！imazineの魂、受け取った！最高のスタイルで描くから！📸」")
     try:
-        style_analyses = await get_style_palette()
-        style_keywords = [kw for analysis in style_analyses if analysis and 'style_keywords' in analysis for kw in analysis.get('style_keywords', [])]
+        style_analyses = await get_styles()
+        style_keywords = [kw for analysis in style_analyses if analysis for kw in analysis.get('style_keywords', [])]
         style_part = ", ".join(list(set(style_keywords))) if style_keywords else ", ".join(FOUNDATIONAL_STYLE_JSON['style_keywords'])
 
         characters = gen_data.get("characters", [])
@@ -480,7 +483,7 @@ async def execute_image_generation(channel: discord.TextChannel, gen_data: dict,
         character_part = "Two young women are together. " + " ".join(base_prompts) if len(base_prompts) > 1 else (base_prompts[0] if base_prompts else "a young woman")
         
         final_prompt = f"{style_part}, {QUALITY_KEYWORDS}, {character_part}, in a scene of {situation}. The overall mood is {mood}."
-        logging.info(f"画像生成プロンプト (試行 {retry_count+1}): {final_prompt}")
+        logging.info(f"画像生成プロンプト: {final_prompt}")
         
         model = GenerativeModel(MODEL_IMAGE_GEN)
         # エラーログに基づき、SafetySettingをリストで渡す
@@ -529,21 +532,20 @@ async def build_history(channel: discord.TextChannel, limit: int = 20) -> List[D
 async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
     """
     プロアクティブな対話を生成し、投稿するための共通関数。
-    メインの会話処理と同じ、ULTIMATE_PROMPTとJSON解析のロジックを使用する。
     """
     async with channel.typing():
         try:
             # 1. 応答生成のための全てのコンテキストを準備
-            emotion = "ニュートラル" # プロアクティブなため、感情はニュートラルと仮定
+            emotion = "ニュートラル"
             character_states = await get_character_states()
             relevant_context = await ask_learner_to_remember("最近のimazineの関心事や会話のトピック")
             magi_soul_record = await get_latest_magi_soul()
-            gals_vocabulary = await get_gals_vocabulary()
-            dialogue_example = await get_dialogue_examples()
+            gals_vocabulary = await get_gals_words()
+            dialogue_example = await get_gals_vocabulary_examples()
+            weather_info = await get_weather("Takizawa")
+
 
             # 2. ULTIMATE_PROMPTを組み立てる
-            # ここで、引数で渡された、個別のプロンプトを、ULTIMATE_PROMPTの、一番上に、結合します。
-            # これにより、基本的な人格は維持しつつ、状況に応じた指示を与えることができます。
             system_prompt = (
                 f"# 追加指示\n{prompt}\n\n"
                 f"{ULTIMATE_PROMPT}"
@@ -554,10 +556,9 @@ async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
                 .replace("{{VOCABULARY_HINT}}", f"参照語彙:{gals_vocabulary}")
                 .replace("{{DIALOGUE_EXAMPLE}}", f"会話例:{dialogue_example}")
             )
-
+            
             # 3. Gemini APIを呼び出し
             model = genai.GenerativeModel(MODEL_PRO)
-            # system_instructionではなく、コンテンツの先頭にシステムプロンプトを配置
             all_content = [{'role': 'system', 'parts': [system_prompt]}]
             response = await model.generate_content_async(all_content)
             raw_response_text = response.text
@@ -776,8 +777,6 @@ async def on_ready():
     logging.info("全てのプロアクティブ機能のスケジューラを開始しました。")
 
 
-# on_message関数を、以下の、最新の、作法に、準拠した、コードで、完全に、置き換えてください。
-
 @client.event
 async def on_message(message: discord.Message):
     """
@@ -828,14 +827,10 @@ async def on_message(message: discord.Message):
             # 1. 入力情報の解析とコンテキスト化
             user_query = message.content
             final_user_content_parts = []
-            
-            # ★★★ ここからが、エラーを、根絶するための、正しい、作法です ★★★
-            # まず、テキスト部分を準備
-            full_user_text = user_query
-            
-            # URLやファイルがあれば、その要約をテキストに追記
             extracted_summary = ""
             summary_context = "一般的な要約"
+
+            # 添付ファイル(PDF/TXT)
             if message.attachments:
                 attachment = message.attachments[0]
                 if attachment.content_type == 'application/pdf':
@@ -845,7 +840,9 @@ async def on_message(message: discord.Message):
                     summary_context = f"テキストファイル「{attachment.filename}」の内容について"
                     text_data = (await attachment.read()).decode('utf-8', errors='ignore')
                     extracted_summary = await analyze_with_gemini(SUMMARY_PROMPT.replace("{{summary_context}}", summary_context).replace("{{text_to_summarize}}", text_data))
-            elif (url_match := re.search(r'https?://\S+', user_query)):
+
+            # URL(YouTube/Web)
+            if not extracted_summary and (url_match := re.search(r'https?://\S+', user_query)):
                 url = url_match.group(0)
                 video_id_match = re.search(r'(?:v=|\/|embed\/|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})', url)
                 if video_id_match:
@@ -856,28 +853,25 @@ async def on_message(message: discord.Message):
                     summary_context = f"ウェブページ「{url}」の内容について"
                     page_text = await get_text_from_url(url)
                     extracted_summary = await analyze_with_gemini(SUMMARY_PROMPT.replace("{{summary_context}}", summary_context).replace("{{text_to_summarize}}", page_text))
-            
-            if extracted_summary:
-                full_user_text += f"\n\n--- 参照資料の要約 ---\n{extracted_summary}"
-            
-            # 最終的なテキストパーツを追加
-            final_user_content_parts.append(full_user_text)
 
-            # 画像があれば、画像パーツを追加
+            # メッセージ構築
+            full_user_text = f"{user_query}\n\n--- 参照資料の要約 ---\n{extracted_summary}" if extracted_summary else user_query
+            final_user_content_parts.append(Part.from_text(full_user_text))
+
             if message.attachments and any(att.content_type.startswith("image/") for att in message.attachments):
                 image_attachment = next((att for att in message.attachments if att.content_type.startswith("image/")), None)
                 if image_attachment:
                     image_bytes = await image_attachment.read()
-                    image_part = Part.from_data(data=image_bytes, mime_type=image_attachment.content_type)
+                    image_part = {"mime_type": image_attachment.content_type, "data": image_bytes}
                     final_user_content_parts.append(image_part)
-            
+
             # 2. 応答生成のためのコンテキストを準備
             emotion = await analyze_with_gemini(EMOTION_ANALYSIS_PROMPT.replace("{{user_message}}", user_query))
             character_states = await get_character_states()
             relevant_context = await ask_learner_to_remember(user_query)
             magi_soul_record = await get_latest_magi_soul()
-            gals_vocabulary = await get_gals_vocabulary()
-            dialogue_example = await get_dialogue_examples()
+            gals_vocabulary = await get_gals_words()
+            dialogue_example = await get_gals_vocabulary_examples()
 
             system_prompt = ULTIMATE_PROMPT.replace("{{CHARACTER_STATES}}", f"みらいの気分:{character_states['mirai_mood']}, へー子の気分:{character_states['heko_mood']}, 直前のやり取り:{character_states['last_interaction_summary']}")\
                                            .replace("{{EMOTION_CONTEXT}}", f"imazineの感情:{emotion}")\
@@ -888,8 +882,9 @@ async def on_message(message: discord.Message):
 
             # 3. Gemini APIを呼び出し
             history = await build_history(message.channel, limit=15)
-            model = genai.GenerativeModel(MODEL_PRO, system_instruction=system_prompt)
-            response = await model.generate_content_async(history + [{'role': 'user', 'parts': final_user_content_parts}])
+            model = genai.GenerativeModel(MODEL_PRO)
+            all_content = [{'role': 'system', 'parts': [system_prompt]}] + history + [{'role': 'user', 'parts': final_user_content_parts}]
+            response = await model.generate_content_async(all_content)
             raw_response_text = response.text
             logging.info(f"AIからの生応答: {raw_response_text[:300]}...")
 
@@ -924,6 +919,7 @@ async def on_message(message: discord.Message):
 
         except Exception as e:
             logging.error(f"会話処理のメインループで予期せぬエラー: {e}", exc_info=True)
+
 
 @client.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
