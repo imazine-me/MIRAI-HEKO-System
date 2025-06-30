@@ -1,11 +1,11 @@
-# learner_main.py (ver.Ω++ - The True Final Version)
+# learner_main.py (ver.Ω++ - The Final Truth, Rev.3)
 # Creator & Partner: imazine & Gemini
 # Part 1/2: Core Setup and Memory I/O
 
 import os
 import logging
 import datetime as dt
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - 
 app = FastAPI(
     title="Learner API - The Soul of MIRAI-HEKO-Bot",
     description="This API manages the long-term memory, style palette, character states, and soul records, based on imazine's final design.",
-    version="4.0.0"
+    version="4.2.0" # Reflecting the latest fixes
 )
 
 # --- 2. クライアント初期化 ---
@@ -50,7 +50,6 @@ try:
         add_start_index=True,
     )
 
-    # あなたのDB設計に完全に準拠したVector Store
     vector_store = SupabaseVectorStore(
         client=supabase,
         embedding=embeddings,
@@ -93,14 +92,11 @@ async def learn_document(request: LearnRequest):
     try:
         logging.info(f"新しい知識の学習を開始します。ソース: {request.metadata.get('filename', 'Unknown')}")
         
-        # テキストをチャンクに分割
         docs = text_splitter.create_documents([request.text_content], metadatas=[request.metadata])
-        
-        # ベクトルストアにチャンクを追加
         vector_store.add_documents(docs)
         logging.info(f"{len(docs)}個のチャンクをベクトルストアに正常に追加しました。")
 
-        # `learning_history`テーブルに記録 (あなたのDB設計に準拠)
+        # あなたのDB設計に完全に準拠 (user_id)
         history_record = {
             "user_id": request.metadata.get("user_id"),
             "username": request.metadata.get("username"),
@@ -125,13 +121,11 @@ async def query_memory(request: QueryRequest):
     try:
         logging.info(f"記憶の検索を実行します。クエリ: 「{request.query_text}」")
         
-        # 類似度検索を実行
         docs = vector_store.similarity_search(query=request.query_text, k=5)
-        
         response_docs = [doc.page_content for doc in docs]
-        logging.info(f"問い合わせに対して{len(response_docs)}件の関連する記憶を返却します。")
         
-        return QueryResponse(documents=response_docs)
+        logging.info(f"問い合わせに対して{len(response_docs)}件の関連する記憶を返却します。")
+        return QueryResponse(status="success", documents=response_docs)
     except Exception as e:
         logging.error(f"記憶の検索(/query)中にエラーが発生しました: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
@@ -141,7 +135,7 @@ async def root():
     """APIサーバーの生存確認用エンドポイント。"""
     return {"message": "Learner is awake. The soul of imazine's world is waiting for a command."}
 
-# learner_main.py (ver.Ω++ - The True Final Version)
+# learner_main.py (ver.Ω++, The Final Truth, Rev.3)
 # Part 2/2: Advanced Functions for Style, Emotion, Soul, and Growth
 
 # --- 5. APIリクエスト/レスポンスモデル定義 (高度な機能) ---
@@ -186,7 +180,7 @@ async def analyze_and_learn_style(request: StyleLearnRequest):
     try:
         logging.info(f"新しい画風の学習を開始します。ソースURL: {request.image_url}")
         
-        model = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
+        model = genai.GenerativeModel('gemini-1.5-pro-latest')
         
         image_response = requests.get(request.image_url)
         image_response.raise_for_status()
@@ -194,7 +188,10 @@ async def analyze_and_learn_style(request: StyleLearnRequest):
 
         prompt = STYLE_ANALYSIS_PROMPT.replace("{{source_prompt}}", request.source_prompt if request.source_prompt else "なし")
         
-        response = await model.generate_content_async([prompt, {"mime_type": "image/jpeg", "data": image_content}])
+        # 正しい作法でGeminiに画像とプロンプトを渡す
+        response = await model.generate_content_async(
+            [prompt, {"mime_type": "image/jpeg", "data": image_content}]
+        )
         
         json_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL)
         if not json_match:
@@ -227,6 +224,7 @@ async def get_styles():
 async def update_character_state(request: CharacterState):
     """キャラクターの最新の感情状態でDBを更新する"""
     try:
+        # 常に最新の1行だけを保持する設計
         supabase.table('character_states').delete().neq('id', 0).execute()
         supabase.table('character_states').insert(request.model_dump()).execute()
         return {"status": "success", "message": "Character state updated."}
@@ -248,6 +246,7 @@ async def get_character_state():
 @app.post("/concern", tags=["Character Care"])
 async def log_concern(request: Concern):
     try:
+        # あなたのDB設計に完全に準拠 (user_id)
         res = supabase.table('concerns').insert({"user_id": request.user_id, "concern_text": request.concern_text}).execute()
         return {"status": "success", "concern_id": res.data[0]['id']}
     except Exception as e:
@@ -256,6 +255,7 @@ async def log_concern(request: Concern):
 @app.get("/unresolved_concerns", tags=["Character Care"])
 async def get_unresolved_concerns(user_id: str = "imazine"):
     try:
+        # あなたのDB設計に完全に準拠 (notified_at)
         res = supabase.table('concerns').select("*").eq('user_id', user_id).is_('notified_at', 'null').order('created_at').limit(5).execute()
         return {"concerns": res.data}
     except Exception as e:
@@ -264,17 +264,32 @@ async def get_unresolved_concerns(user_id: str = "imazine"):
 @app.post("/resolve_concern", tags=["Character Care"])
 async def mark_concern_notified(request: ResolveConcernRequest):
     try:
+        # あなたのDB設計に完全に準拠 (notified_at)
         supabase.table('concerns').update({"notified_at": dt.datetime.now(dt.timezone.utc).isoformat()}).eq('id', request.concern_id).execute()
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/gals_vocabulary", tags=["Vocabulary"])
-async def get_gals_vocabulary():
-    """みらいとへー子が使いそうな単語を取得する"""
+@app.get("/gals_words", tags=["Vocabulary"])
+async def get_gals_words():
+    """gals_wordsテーブルから、単語リストを取得する"""
     try:
-        res = supabase.table('gals_vocabulary').select("word, character_type").limit(30).execute()
+        # あなたのDB設計に完全に準拠 (gals_words)
+        res = supabase.table('gals_words').select("word, character_type").limit(30).execute()
         return {"vocabulary": res.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/gals_vocabulary", tags=["Dialogue"])
+async def get_gals_vocabulary_examples():
+    """gals_vocabularyテーブルから、会話のお手本（語録）を取得する"""
+    try:
+        # あなたのDB設計に完全に準拠 (gals_vocabulary)
+        res = supabase.table('gals_vocabulary').select("example").order('created_at', desc=True).limit(3).execute()
+        if res.data:
+            examples_text = "\n".join([json.dumps(item['example'], ensure_ascii=False) for item in res.data])
+            return {"examples": examples_text}
+        return {"examples": "（利用可能な会話例はありません）"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
