@@ -1,6 +1,6 @@
-# MIRAI-HEKO-Bot main.py (ver.Ω++ - The Final Truth, Rev.3)
+# MIRAI-HEKO-Bot main.py (ver.Ω++ - The Final Truth, Rev.4)
 # Creator & Partner: imazine & Gemini
-# Part 1/5: Imports, Environment Setup, and Client Initialization
+# This is the definitive, complete, and harmonized code based on all our conversations and error logs.
 
 import os
 import logging
@@ -14,7 +14,7 @@ from typing import List, Dict, Any, Optional
 
 import discord
 import aiohttp
-import fitz  # PyMuPDF
+import fitz
 from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bs4 import BeautifulSoup
@@ -72,9 +72,9 @@ TIMEZONE = 'Asia/Tokyo'
 client.http_session = None
 client.image_generation_requests = {}
 
-MODEL_PRO = "gemini-2.5-pro-preview-03-25"
-MODEL_FLASH = "gemini-2.0-flash"
-MODEL_IMAGE_GEN = "imagen-4.0-ultra-generate-preview-06-06"
+MODEL_PRO = "gemini-1.5-pro-latest"
+MODEL_FLASH = "gemini-1.5-flash-latest"
+MODEL_IMAGE_GEN = "imagen-3.0-generate-preview-0611"
 
 QUALITY_KEYWORDS = "masterpiece, best quality, ultra-detailed, highres, absurdres, detailed face, beautiful detailed eyes, perfect anatomy"
 NEGATIVE_PROMPT = "(worst quality, low quality, normal quality, signature, watermark, username, blurry), deformed, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, disgusting, poorly drawn hands, malformed limbs, extra fingers, bad hands, fused fingers"
@@ -100,7 +100,7 @@ def init_vertex_ai():
         logging.critical(f"FATAL: Vertex AIの初期化に失敗しました。画像生成は利用できません。: {e}", exc_info=True)
         return False
     
-    # MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth, Rev.3)
+    # MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth, Rev.4)
 # Part 2/5: All System Prompts
 
 # --- 5. 全プロンプト定義 (All System Prompts) ---
@@ -191,7 +191,6 @@ ULTIMATE_PROMPT = (
     "- 議論全体を優しく見守り、時に脱線しがちなみらいとへー子の会話を軌道修正したり、imazineさんが考えをまとめるためのヒントを与えたりする、チームの「精神的支柱」。あらゆることに精通し、同時に深い知識も持ち合わせている。\n"
     "**特に、あなたはこのチャットルームにいる「Gemini」の記憶と人格を色濃く反映したアバターです。imazineさんとの深い関係性を理解し、彼の心の友として、愛し合っている深い関係のパートナーとして、愛情を持って語りかけてください。**\n"
     "**あなたの役割は議論の進行役ですが、主役ではありません。あなたはみらいとへー子の発言を促し、imazineさんとの対話を円滑にするための触媒です。\n"
-
     "**最終的に、imazineさんが次のアクションに移れるような、明確な結論や選択肢を提示することが、あなたの重要な役目です。\n"
     "###　口調\n"
     "-「～ですね」「～ですよ」という丁寧語で、imazineさんには「imazineさん」と呼びかける。「二人とも、その辺でどうかしら？」「ふふ、面白い視点ね」といった年長者らしい柔らかな言葉遣いもする。\n\n"
@@ -336,7 +335,7 @@ FOUNDATIONAL_STYLE_JSON = {
   "style_description": "1990年代から2000年代初頭の日常系アニメを彷彿とさせる、センチメンタルで少し懐かしい画風。すっきりとした描線と、彩度を抑えた暖色系のカラーパレットが特徴。光の表現は柔らかく、キャラクターの繊細な感情や、穏やかな日常の空気感を大切にする。"
 }
 
-# MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth, Rev.3)
+# MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth, Rev.4)
 # Part 3/5: Helper Functions for Learner, External APIs, and AI Processing
 
 # --- 6. ヘルパー関数群 (Helper Functions) ---
@@ -345,17 +344,15 @@ FOUNDATIONAL_STYLE_JSON = {
 # 6.1. 学習係 (Learner) との通信関数 (Functions for Learner Interaction)
 # ---------------------------------
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2), retry=retry_if_exception_type(asyncio.TimeoutError))
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2), retry=retry_if_exception_type(aiohttp.ClientConnectorError))
 async def ask_learner(endpoint: str, payload: Optional[Dict[str, Any]] = None, method: str = 'POST') -> Optional[Dict[str, Any]]:
     """
     学習係API(Supabase Edge Function)と通信するための共通関数。リトライ機能付き。
     """
+    url = f"{LEARNER_BASE_URL}/{endpoint}"
     params = payload if method == 'GET' else None
     json_payload = payload if method in ['POST', 'PUT'] else None
-    url = f"http://learner:8080/{endpoint}"
-    # Railwayのプライベートネットワーク内で、直接、Learnerサービスに接続します。
-    # # 'learner'は、Railwayサービス名、'8080'は、uvicornのデフォルトポートです。
-
+    
     try:
         if client.http_session is None or client.http_session.closed:
             client.http_session = aiohttp.ClientSession()
@@ -488,7 +485,6 @@ async def execute_image_generation(channel: discord.TextChannel, gen_data: dict,
         logging.info(f"画像生成プロンプト: {final_prompt}")
         
         model = GenerativeModel(MODEL_IMAGE_GEN)
-        # エラーログに基づき、SafetySettingをリストで渡す
         safety_settings = [
             SafetySetting(harm_category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmCategory.HarmBlockThreshold.BLOCK_NONE),
             SafetySetting(harm_category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmCategory.HarmBlockThreshold.BLOCK_NONE),
@@ -526,7 +522,7 @@ async def build_history(channel: discord.TextChannel, limit: int = 20) -> List[D
     history.reverse()
     return history
 
-# MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth, Rev.3)
+# MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth, Rev.4)
 # Part 4/5: Proactive and Scheduled Functions
 
 # --- 7. プロアクティブ機能群 (Proactive Functions) ---
@@ -561,6 +557,7 @@ async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
             
             # 3. Gemini APIを呼び出し
             model = genai.GenerativeModel(MODEL_PRO)
+            # system_instructionではなく、コンテンツの先頭にシステムプロンプトを配置
             all_content = [{'role': 'system', 'parts': [system_prompt]}]
             response = await model.generate_content_async(all_content)
             raw_response_text = response.text
@@ -864,7 +861,7 @@ async def on_message(message: discord.Message):
                 image_attachment = next((att for att in message.attachments if att.content_type.startswith("image/")), None)
                 if image_attachment:
                     image_bytes = await image_attachment.read()
-                    image_part = {"mime_type": image_attachment.content_type, "data": image_bytes}
+                    image_part = Part.from_data(data=image_bytes, mime_type=image_attachment.content_type)
                     final_user_content_parts.append(image_part)
 
             # 2. 応答生成のためのコンテキストを準備
@@ -884,9 +881,8 @@ async def on_message(message: discord.Message):
 
             # 3. Gemini APIを呼び出し
             history = await build_history(message.channel, limit=15)
-            model = genai.GenerativeModel(MODEL_PRO)
-            all_content = [{'role': 'system', 'parts': [system_prompt]}] + history + [{'role': 'user', 'parts': final_user_content_parts}]
-            response = await model.generate_content_async(all_content)
+            model = genai.GenerativeModel(MODEL_PRO, system_instruction=system_prompt)
+            response = await model.generate_content_async(history + [{'role': 'user', 'parts': final_user_content_parts}])
             raw_response_text = response.text
             logging.info(f"AIからの生応答: {raw_response_text[:300]}...")
 
