@@ -180,7 +180,7 @@ async def analyze_and_learn_style(request: StyleLearnRequest):
     try:
         logging.info(f"新しい画風の学習を開始します。ソースURL: {request.image_url}")
         
-        model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        model = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
         
         image_response = requests.get(request.image_url)
         image_response.raise_for_status()
