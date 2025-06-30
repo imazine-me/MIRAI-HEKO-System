@@ -72,8 +72,8 @@ TIMEZONE = 'Asia/Tokyo'
 client.http_session = None
 client.image_generation_requests = {}
 
-MODEL_PRO = "gemini-1.5-pro-latest"
-MODEL_FLASH = "gemini-1.5-flash-latest"
+MODEL_PRO = "gemini-2.5-pro-preview-03-25"
+MODEL_FLASH = "gemini-2.0-flash"
 MODEL_IMAGE_GEN = "imagen-3.0-generate-preview-0611"
 
 QUALITY_KEYWORDS = "masterpiece, best quality, ultra-detailed, highres, absurdres, detailed face, beautiful detailed eyes, perfect anatomy"
@@ -776,6 +776,8 @@ async def on_ready():
     logging.info("全てのプロアクティブ機能のスケジューラを開始しました。")
 
 
+# on_message関数を、以下の、最新の、作法に、準拠した、コードで、完全に、置き換えてください。
+
 @client.event
 async def on_message(message: discord.Message):
     """
@@ -826,10 +828,14 @@ async def on_message(message: discord.Message):
             # 1. 入力情報の解析とコンテキスト化
             user_query = message.content
             final_user_content_parts = []
+            
+            # ★★★ ここからが、エラーを、根絶するための、正しい、作法です ★★★
+            # まず、テキスト部分を準備
+            full_user_text = user_query
+            
+            # URLやファイルがあれば、その要約をテキストに追記
             extracted_summary = ""
             summary_context = "一般的な要約"
-
-            # 添付ファイル(PDF/TXT)
             if message.attachments:
                 attachment = message.attachments[0]
                 if attachment.content_type == 'application/pdf':
@@ -839,9 +845,7 @@ async def on_message(message: discord.Message):
                     summary_context = f"テキストファイル「{attachment.filename}」の内容について"
                     text_data = (await attachment.read()).decode('utf-8', errors='ignore')
                     extracted_summary = await analyze_with_gemini(SUMMARY_PROMPT.replace("{{summary_context}}", summary_context).replace("{{text_to_summarize}}", text_data))
-
-            # URL(YouTube/Web)
-            if not extracted_summary and (url_match := re.search(r'https?://\S+', user_query)):
+            elif (url_match := re.search(r'https?://\S+', user_query)):
                 url = url_match.group(0)
                 video_id_match = re.search(r'(?:v=|\/|embed\/|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})', url)
                 if video_id_match:
@@ -852,18 +856,21 @@ async def on_message(message: discord.Message):
                     summary_context = f"ウェブページ「{url}」の内容について"
                     page_text = await get_text_from_url(url)
                     extracted_summary = await analyze_with_gemini(SUMMARY_PROMPT.replace("{{summary_context}}", summary_context).replace("{{text_to_summarize}}", page_text))
+            
+            if extracted_summary:
+                full_user_text += f"\n\n--- 参照資料の要約 ---\n{extracted_summary}"
+            
+            # 最終的なテキストパーツを追加
+            final_user_content_parts.append(full_user_text)
 
-            # メッセージ構築
-            full_user_text = f"{user_query}\n\n--- 参照資料の要約 ---\n{extracted_summary}" if extracted_summary else user_query
-            final_user_content_parts.append(Part.from_text(full_user_text))
-
+            # 画像があれば、画像パーツを追加
             if message.attachments and any(att.content_type.startswith("image/") for att in message.attachments):
                 image_attachment = next((att for att in message.attachments if att.content_type.startswith("image/")), None)
                 if image_attachment:
                     image_bytes = await image_attachment.read()
-                    image_part = {"mime_type": image_attachment.content_type, "data": image_bytes}
+                    image_part = Part.from_data(data=image_bytes, mime_type=image_attachment.content_type)
                     final_user_content_parts.append(image_part)
-
+            
             # 2. 応答生成のためのコンテキストを準備
             emotion = await analyze_with_gemini(EMOTION_ANALYSIS_PROMPT.replace("{{user_message}}", user_query))
             character_states = await get_character_states()
@@ -881,9 +888,8 @@ async def on_message(message: discord.Message):
 
             # 3. Gemini APIを呼び出し
             history = await build_history(message.channel, limit=15)
-            model = genai.GenerativeModel(MODEL_PRO)
-            all_content = [{'role': 'system', 'parts': [system_prompt]}] + history + [{'role': 'user', 'parts': final_user_content_parts}]
-            response = await model.generate_content_async(all_content)
+            model = genai.GenerativeModel(MODEL_PRO, system_instruction=system_prompt)
+            response = await model.generate_content_async(history + [{'role': 'user', 'parts': final_user_content_parts}])
             raw_response_text = response.text
             logging.info(f"AIからの生応答: {raw_response_text[:300]}...")
 
@@ -918,7 +924,6 @@ async def on_message(message: discord.Message):
 
         except Exception as e:
             logging.error(f"会話処理のメインループで予期せぬエラー: {e}", exc_info=True)
-
 
 @client.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
