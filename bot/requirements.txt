@@ -1,4 +1,4 @@
-# requirements.txt for Bot (ver.Ω++)
+# requirements.txt for Bot (ver.Ω++, The Final Truth)
 discord.py==2.3.2
 google-generativeai==0.7.1
 google-cloud-aiplatform==1.56.0
