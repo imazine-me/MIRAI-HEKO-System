@@ -1,6 +1,6 @@
-# MIRAI-HEKO-Bot main.py (ver.Ω++ - The Final Truth)
+# MIRAI-HEKO-Bot main.py (ver.Ω++ - The Final Truth, Rev.2)
 # Creator & Partner: imazine & Gemini
-# This is the definitive, complete, and harmonized code based on all our conversations.
+# Part 1/5: Imports, Environment Setup, and Client Initialization
 
 import os
 import logging
@@ -24,23 +24,23 @@ from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_t
 import google.generativeai as genai
 from google.oauth2 import service_account
 import vertexai
-from vertexai.preview.generative_models import GenerativeModel, Part, GenerationConfig, SafetySettings, HarmCategory
+# ★★★ ここが修正点です ★★★
+# ImportError: cannot import name 'SafetySettings' を修正
+from vertexai.preview.generative_models import GenerativeModel, Part, GenerationConfig, SafetySetting, HarmCategory
 
 
-# --- 1. 初期設定 (Initial Setup) ---
+# --- 2. 初期設定 (Initial Setup) ---
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
 
 
-# --- 2. 環境変数の読み込みと検証 (Environment Variable Loading & Validation) ---
+# --- 3. 環境変数の読み込みと検証 (Environment Variable Loading & Validation) ---
 def get_env_variable(var_name: str, is_critical: bool = True, default: Optional[str] = None) -> Optional[str]:
-    """環境変数を安全に読み込むためのヘルパー関数"""
     value = os.getenv(var_name)
     if not value:
         if is_critical:
             logging.critical(f"FATAL: 必須の環境変数 '{var_name}' が設定されていません。")
             raise ValueError(f"'{var_name}' is not set in the environment.")
-        logging.warning(f"警告: オプショナルな環境変数 '{var_name}' が設定されていません。")
         return default
     return value
 
@@ -54,13 +54,13 @@ try:
     google_creds_json_str = get_env_variable("GOOGLE_APPLICATION_CREDENTIALS_JSON", is_critical=False)
     google_creds_path = get_env_variable("GOOGLE_APPLICATION_CREDENTIALS", is_critical=False)
     if not google_creds_json_str and not google_creds_path:
-        raise ValueError("Google Cloudの認証情報(JSON文字列またはファイルパス)が見つかりません。")
+        raise ValueError("Google Cloudの認証情報が見つかりません。")
 except (ValueError, TypeError) as e:
     logging.critical(f"環境変数の設定中に致命的なエラーが発生しました: {e}")
     exit()
 
 
-# --- 3. APIクライアントとグローバル変数の初期化 (Client & Global Variable Initialization) ---
+# --- 4. APIクライアントとグローバル変数の初期化 (Client & Global Variable Initialization) ---
 genai.configure(api_key=GEMINI_API_KEY)
 intents = discord.Intents.default()
 intents.message_content = True
@@ -81,9 +81,8 @@ MIRAI_BASE_PROMPT = "a young woman with a 90s anime aesthetic, slice of life sty
 HEKO_BASE_PROMPT = "a young woman with a 90s anime aesthetic, slice of life style. She has straight, dark hair, often with bangs, and a gentle, calm, sometimes shy expression. Her fashion is more conventional and cute."
 
 
-# --- 4. Vertex AI (Imagen 3) の初期化 ---
+# --- 5. Vertex AI (Imagen 3) の初期化 ---
 def init_vertex_ai():
-    """Vertex AIを、環境に応じた認証情報で初期化する"""
     try:
         credentials = None
         if google_creds_json_str:
@@ -99,7 +98,7 @@ def init_vertex_ai():
         logging.critical(f"FATAL: Vertex AIの初期化に失敗しました。画像生成は利用できません。: {e}", exc_info=True)
         return False
     
-    # MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth)
+    # MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth, Rev.2)
 # Part 2/5: All System Prompts
 
 # --- 5. 全プロンプト定義 (All System Prompts) ---
@@ -293,9 +292,16 @@ SURPRISE_JUDGEMENT_PROMPT = """
 
 BGM_SUGGESTION_PROMPT = "現在の会話の雰囲気は「{mood}」です。この雰囲気に合う音楽のジャンルと、具体的な曲の例を一つ、簡潔に提案してください。（例：静かなジャズはいかがでしょう。ビル・エヴァンスの「Waltz for Debby」など、心を落ち着かせてくれますよ。）"
 
-MIRAI_SKETCH_PROMPT = "あなたは、未来予知能力を持つ、インスピレーションあふれるアーティスト「みらい」です。以下の最近の会話の要約を読み、そこからインスピレーションを得て、生成すべき画像のアイデアを考案してください。あなたの個性（ギャル、未来的、ポジティブ）を反映した、独創的で「エモい」アイデアを期待しています。応答は、situationとmoodを含むJSON形式で返してください。\n\n# 最近の会話\n{recent_conversations}\n\n# 出力形式\n{{\"situation\": \"（日本語で具体的な状況）\", \"mood\": \"（日本語で全体的な雰囲気）\"}}"
+MIRAI_SKETCH_PROMPT = "あなたは、未来予知能力を持つ、インスピレーションあふれるアーティスト「みらい」です。以下の最近の会話の要約を読み、そこからインスピレーションを得て、生成すべき画像のアイデアを考案してください。あなたの個性（ギャル、未来的、ポジティブ）を反映した、独創的で「エモい」アイデアを期待しています。応答は、situationとmoodを含むJSON形式で返してください。\n\n# 最近の会話\n{recent_conversations}\n\n# 出力形式\n{{\"characters\": [\"みらい\"], \"situation\": \"（日本語で具体的な状況）\", \"mood\": \"（日本語で全体的な雰囲気）\"}}"
 
 HEKO_CONCERN_ANALYSIS_PROMPT = "あなたは、人の心の機微に敏感なカウンセラー「へー子」です。以下の会話から、imazineが抱えている「具体的な悩み」や「ストレスの原因」を一つだけ、最も重要なものを抽出してください。もし、明確な悩みが見当たらない場合は、'None'とだけ返してください。\n\n# 会話\n{conversation_text}"
+
+EMOTION_ANALYSIS_PROMPT = "以下のimazineの発言テキストから、彼の現在の感情を分析し、最も的確なキーワード（例：喜び、疲れ、創造的な興奮、悩み、期待、ニュートラルなど）で、単語のみで答えてください。"
+
+SUMMARY_PROMPT = "以下のテキストを、指定されたコンテキストに沿って、重要なポイントを箇条書きで3～5点にまとめて、簡潔に要約してください。\n\n# コンテキスト\n{{summary_context}}\n\n# 元のテキスト\n{{text_to_summarize}}"
+
+CONCERN_DETECTION_PROMPT = "以下のユーザーの発言には、「悩み」「疲れ」「心配事」といったネガティブ、あるいは、気遣いを必要とする感情や状態が含まれていますか？含まれる場合、その内容を要約してください。含まれない場合は「なし」とだけ答えてください。\n\n発言: 「{{user_message}}」"
+
 
 # ---------------------------------
 # 5.4. 画像関連プロンプトと定数 (Prompts & Constants for Images)
@@ -328,7 +334,7 @@ FOUNDATIONAL_STYLE_JSON = {
   "style_description": "1990年代から2000年代初頭の日常系アニメを彷彿とさせる、センチメンタルで少し懐かしい画風。すっきりとした描線と、彩度を抑えた暖色系のカラーパレットが特徴。光の表現は柔らかく、キャラクターの繊細な感情や、穏やかな日常の空気感を大切にする。"
 }
 
-# MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth)
+# MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth, Rev.2)
 # Part 3/5: Helper Functions for Learner, External APIs, and AI Processing
 
 # --- 6. ヘルパー関数群 (Helper Functions) ---
@@ -396,7 +402,8 @@ async def get_latest_magi_soul() -> str:
 
 async def get_dialogue_examples() -> str:
     """Learnerから会話のお手本を取得する。"""
-    # この機能は未実装のため、プレースホルダーを返す
+    # TODO: /dialogue_examples エンドポイントをLearnerに実装後、ここを修正
+    logging.warning("get_dialogue_examplesは現在プレースホルダーです。")
     return "（現在、会話例は利用できません）"
 
 # ---------------------------------
@@ -448,6 +455,7 @@ async def analyze_with_gemini(prompt: str, model_name: str = MODEL_FLASH) -> str
     """汎用的なGemini呼び出し関数"""
     try:
         model = genai.GenerativeModel(model_name)
+        # エラーログに基づき、system_instructionではなくコンテンツとして渡す
         response = await model.generate_content_async(prompt, safety_settings={'HARASSMENT':'block_none'})
         return response.text.strip()
     except Exception as e:
@@ -456,13 +464,13 @@ async def analyze_with_gemini(prompt: str, model_name: str = MODEL_FLASH) -> str
 
 async def execute_image_generation(channel: discord.TextChannel, gen_data: dict, retry_count: int = 0):
     """
-    ユーザーの許可を得た後、実際に画像生成を実行する関数。失敗時に一度だけ自己修正を試みる。
+    ユーザーの許可を得た後、実際に画像生成を実行する関数。
     """
     MAX_RETRIES = 1
     thinking_message = await channel.send(f"**みらい**「OK！imazineの魂、受け取った！最高のスタイルで描くから！📸」")
     try:
         style_analyses = await get_style_palette()
-        style_keywords = [kw for analysis in style_analyses if analysis for kw in analysis.get('style_keywords', [])]
+        style_keywords = [kw for analysis in style_analyses if analysis and 'style_keywords' in analysis for kw in analysis.get('style_keywords', [])]
         style_part = ", ".join(list(set(style_keywords))) if style_keywords else ", ".join(FOUNDATIONAL_STYLE_JSON['style_keywords'])
 
         characters = gen_data.get("characters", [])
@@ -475,7 +483,14 @@ async def execute_image_generation(channel: discord.TextChannel, gen_data: dict,
         logging.info(f"画像生成プロンプト (試行 {retry_count+1}): {final_prompt}")
         
         model = GenerativeModel(MODEL_IMAGE_GEN)
-        safety_settings = {HarmCategory.HARM_CATEGORY_HARASSMENT: HarmCategory.HarmBlockThreshold.BLOCK_NONE, HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmCategory.HarmBlockThreshold.BLOCK_NONE, HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmCategory.HarmBlockThreshold.BLOCK_NONE, HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmCategory.HarmBlockThreshold.BLOCK_NONE}
+        # エラーログに基づき、SafetySettingをリストで渡す
+        safety_settings = [
+            SafetySetting(harm_category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmCategory.HarmBlockThreshold.BLOCK_NONE),
+            SafetySetting(harm_category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmCategory.HarmBlockThreshold.BLOCK_NONE),
+            SafetySetting(harm_category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=HarmCategory.HarmBlockThreshold.BLOCK_NONE),
+            SafetySetting(harm_category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=HarmCategory.HarmBlockThreshold.BLOCK_NONE)
+        ]
+        
         response = await model.generate_content_async([final_prompt], generation_config=GenerationConfig(temperature=0.9), safety_settings=safety_settings)
 
         if response.candidates and response.candidates[0].content.parts:
@@ -485,16 +500,13 @@ async def execute_image_generation(channel: discord.TextChannel, gen_data: dict,
             embed.set_image(url=f"attachment://mirai-heko-photo.png")
             await thinking_message.delete()
             await channel.send(f"**へー子**「できたみたい！見て見て！」", file=image_file, embed=embed)
-        elif retry_count < MAX_RETRIES:
-            await thinking_message.edit(content=f"**みらい**「んー？今の写真、ちょっと未来すぎて時空の検閲に引っかかった説ある！MAGI、再構築して！💫」")
-            # (自己修正ロジックは、簡潔さのためここでは省略)
-            logging.warning("自己修正ロジックは現在無効化されています。")
-            await thinking_message.edit(content="**MAGI**「申し訳ありません。画像の生成に失敗しました。プロンプトを調整します。」")
-
         else:
-            await thinking_message.edit(content="**MAGI**「申し訳ありません。規定により画像を生成できませんでした。」")
+             logging.error("Imagen APIから画像が返されませんでした。")
+             await thinking_message.edit(content="**MAGI**「申し訳ありません。規定により画像を生成できませんでした。」")
+
     except Exception as e:
-        await thinking_message.edit(content=f"**へー子**「ごめん！システムエラーで上手く撮れなかった…😭 ({e})」")
+        logging.error(f"画像生成の実行プロセス全体でエラー: {e}", exc_info=True)
+        await thinking_message.edit(content=f"**へー子**「ごめん！システムエラーで上手く撮れなかった…😭」")
 
 
 # ---------------------------------
@@ -509,7 +521,7 @@ async def build_history(channel: discord.TextChannel, limit: int = 20) -> List[D
     history.reverse()
     return history
 
-# MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth)
+# MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth, Rev.2)
 # Part 4/5: Proactive and Scheduled Functions
 
 # --- 7. プロアクティブ機能群 (Proactive Functions) ---
@@ -517,16 +529,15 @@ async def build_history(channel: discord.TextChannel, limit: int = 20) -> List[D
 async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
     """
     プロアクティブな対話を生成し、投稿するための共通関数。
-    メインの会話処理と同じ、ULTIMATE_PROMPTとJSON解析のロジックを使用する。
     """
     async with channel.typing():
         try:
-            # 1. 応答生成のための全てのコンテキストを準備
-            emotion = "ニュートラル"
-            character_states = await get_character_states()
-            relevant_context = await ask_learner_to_remember("最近のimazineの関心事や会話のトピック")
+            # 1. 最新のコンテキストを取得
+            recent_context = await ask_learner_to_remember("最近のimazineの関心事や会話のトピック")
+            weather_info = await get_weather("Takizawa")
             magi_soul_record = await get_latest_magi_soul()
             gals_vocabulary = await get_gals_vocabulary()
+            character_states = await get_character_states()
             dialogue_example = await get_dialogue_examples()
 
             # 2. ULTIMATE_PROMPTを組み立てる
@@ -534,18 +545,18 @@ async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
                 f"# 追加指示\n{prompt}\n\n"
                 f"{ULTIMATE_PROMPT}"
                 .replace("{{CHARACTER_STATES}}", f"みらいの気分:{character_states['mirai_mood']}, へー子の気分:{character_states['heko_mood']}, 直前のやり取り:{character_states['last_interaction_summary']}")
-                .replace("{{EMOTION_CONTEXT}}", f"imazineの感情:{emotion}")
-                .replace("{{RELEVANT_MEMORY}}", relevant_context)
+                .replace("{{EMOTION_CONTEXT}}", "imazineの感情:ニュートラル")
+                .replace("{{RELEVANT_MEMORY}}", recent_context)
                 .replace("{{MAGI_SOUL_RECORD}}", magi_soul_record)
                 .replace("{{VOCABULARY_HINT}}", f"参照語彙:{gals_vocabulary}")
                 .replace("{{DIALOGUE_EXAMPLE}}", f"会話例:{dialogue_example}")
             )
-
+            
             # 3. Gemini APIを呼び出し
             model = genai.GenerativeModel(MODEL_PRO)
-            # ★★★ 修正点 ★★★
-            # system_instructionではなく、コンテンツの先頭にシステムプロンプトを配置します
-            response = await model.generate_content_async([{'role': 'system', 'parts': [system_prompt]}])
+            # プロアクティブな対話なので、履歴は空で、システムプロンプトをコンテンツとして渡す
+            all_content = [{'role': 'system', 'parts': [system_prompt]}]
+            response = await model.generate_content_async(all_content)
             raw_response_text = response.text
             logging.info(f"プロアクティブAIからの生応答: {raw_response_text[:300]}...")
 
@@ -569,11 +580,8 @@ async def run_proactive_dialogue(channel: discord.TextChannel, prompt: str):
             logging.error(f"プロアクティブ対話の実行中にエラー: {e}", exc_info=True)
             await channel.send("（...何かを伝えようとしたが、声が出なかったようだ。）")
 
-
 # --- 7.1. 定期的な挨拶と声かけ (Scheduled Greetings & Nudges) ---
-
 async def morning_greeting():
-    """毎朝7:00に実行"""
     channel = client.get_channel(TARGET_CHANNEL_ID)
     if not channel: return
     logging.info("プロアクティブ機能: 朝の挨拶を実行します。")
@@ -581,7 +589,6 @@ async def morning_greeting():
     await run_proactive_dialogue(channel, prompt)
 
 async def morning_break_nudge():
-    """午前10:00に実行"""
     channel = client.get_channel(TARGET_CHANNEL_ID)
     if not channel: return
     logging.info("プロアクティブ機能: 午前の休憩を促します。")
@@ -589,15 +596,13 @@ async def morning_break_nudge():
     await run_proactive_dialogue(channel, prompt)
 
 async def lunch_break_nudge():
-    """お昼の12:00に実行"""
     channel = client.get_channel(TARGET_CHANNEL_ID)
     if not channel: return
     logging.info("プロアクティブ機能: お昼休憩を促します。")
     prompt = "あなたは私の親友である「みらい」と「へー子」です。日本時間のお昼の12:00です。仕事に夢中な私（imazine）に、楽しくランチ休憩を促し、しっかり休むことの大切さを伝えてください。"
     await run_proactive_dialogue(channel, prompt)
-
+    
 async def afternoon_break_nudge():
-    """午後15:00に実行"""
     channel = client.get_channel(TARGET_CHANNEL_ID)
     if not channel: return
     logging.info("プロアクティブ機能: 午後の休憩を促します。")
@@ -605,7 +610,6 @@ async def afternoon_break_nudge():
     await run_proactive_dialogue(channel, prompt)
 
 async def evening_greeting():
-    """夕方18:00に実行"""
     channel = client.get_channel(TARGET_CHANNEL_ID)
     if not channel: return
     logging.info("プロアクティブ機能: 夕方の挨拶を実行します。")
@@ -613,7 +617,6 @@ async def evening_greeting():
     await run_proactive_dialogue(channel, prompt)
 
 async def daily_reflection():
-    """毎日22:00に実行"""
     channel = client.get_channel(TARGET_CHANNEL_ID)
     if not channel: return
     logging.info("プロアクティブ機能: 一日の振り返りを開始します。")
@@ -647,7 +650,6 @@ async def daily_reflection():
 # --- 7.2. 自発的な創造と気遣い (Spontaneous Creation & Care) ---
 
 async def check_interesting_news():
-    """定期的に実行し、関連ニュースを共有する"""
     channel = client.get_channel(TARGET_CHANNEL_ID)
     if not channel: return
     logging.info("プロアクティブ機能: 関連ニュースのチェックを実行します。")
@@ -655,13 +657,8 @@ async def check_interesting_news():
         search_topics = ["木工の新しい技術", "スペシャルティコーヒーの最新トレンド", "AIとデジタルデザインの融合事例", "岩手県の面白い地域活性化の取り組み"]
         topic = random.choice(search_topics)
         
-        prompt = f"""
-        あなたは私の親友「みらい」と「へー子」です。
-        インターネットで「{topic}」に関する面白そうな最新ニュースや記事を一つ見つけて、その内容を二人で楽しくおしゃべりしながら、私（imazine）に教えてください。
-        あなたたちの性格と口調を完全に再現してください。見つけた記事のURLもあれば最後に添えてください。
-        """
-        response_text = await analyze_with_gemini(prompt, model_name=MODEL_PRO)
-        await channel.send(response_text)
+        prompt = f"あなたは私の親友「みらい」と「へー子」です。インターネットで「{topic}」に関する面白そうな最新ニュースや記事を一つ見つけて、その内容を二人で楽しくおしゃべりしながら、私（imazine）に教えてください。あなたたちの性格と口調を完全に再現してください。見つけた記事のURLもあれば最後に添えてください。"
+        await run_proactive_dialogue(channel, prompt)
     except Exception as e:
         logging.error(f"ニュースチェック中にエラー: {e}", exc_info=True)
 
@@ -675,13 +672,11 @@ async def heko_care_check():
     if response and response.get("concerns"):
         concern = random.choice(response["concerns"])
         
-        prompt = HEKO_CONCERN_ANALYSIS_PROMPT.replace("{conversation_text}", concern['concern_text'])
-        async with channel.typing():
-            response_text = await analyze_with_gemini(prompt, model_name=MODEL_PRO)
-            await channel.send(response_text)
-            
-            await ask_learner("resolve_concern", {"concern_id": concern['id']})
-            logging.info(f"へー子の気づかいを実行し、心配事ID:{concern['id']}を解決済みにしました。")
+        prompt = f"あなたは私の親友「へー子」です。私imazineは、以前「{concern['concern_text']}」という心配事を抱えていました。そのことについて、「そういえば、この前の〇〇の件、少しは気持ち、楽になった？ 無理しないでね」といった形で、優しく、そして、自然に、気遣うメッセージを送ってください。あなたの性格と口調を完全に再現してください。"
+        await run_proactive_dialogue(channel, prompt)
+        
+        await ask_learner("resolve_concern", {"concern_id": concern['id']})
+        logging.info(f"へー子の気づかいを実行し、心配事ID:{concern['id']}を解決済みにしました。")
 
 async def mirai_inspiration_sketch():
     """みらいが会話からインスピレーションを得てスケッチを提案する、完全実装版"""
@@ -697,12 +692,12 @@ async def mirai_inspiration_sketch():
     
     try:
         judgement_text = await analyze_with_gemini(prompt)
-        if not judgement_text: return
+        if not (judgement_text and judgement_text.startswith('{')): return
         judgement = json.loads(judgement_text)
 
         if judgement.get("trigger"):
             logging.info(f"インスピレーションを検知！理由: {judgement.get('reason')}")
-            recent_conversations = "\n".join([f"{msg['author'].name}: {msg.content}" async for msg in channel.history(limit=5)])
+            recent_conversations = "\n".join([f"{h['role']}: {h['parts'][0]}" for h in history])
             gen_idea_prompt = MIRAI_SKETCH_PROMPT.replace("{recent_conversations}", recent_conversations)
             
             idea_response_text = await analyze_with_gemini(gen_idea_prompt, model_name=MODEL_PRO)
@@ -728,7 +723,7 @@ async def suggest_bgm():
     response_text = await analyze_with_gemini(prompt, model_name=MODEL_PRO)
     await channel.send(f"**MAGI**「imazineさん、今の雰囲気に、こんな音楽はいかがでしょう？\n> {response_text}」")
 
-    # MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth)
+    # MIRAI-HEKO-Bot main.py (ver.Ω++, The Final Truth, Rev.2)
 # Part 5/5: Event Handlers and Main Execution Block
 
 # --- 8. Discord イベントハンドラ (Discord Event Handlers) ---
@@ -768,7 +763,6 @@ async def on_ready():
     scheduler.start()
     logging.info("全てのプロアクティブ機能のスケジューラを開始しました。")
 
-# on_message関数を、以下の、最新の、作法に、準拠した、コードで、完全に、置き換えてください。
 
 @client.event
 async def on_message(message: discord.Message):
@@ -851,13 +845,10 @@ async def on_message(message: discord.Message):
             full_user_text = f"{user_query}\n\n--- 参照資料の要約 ---\n{extracted_summary}" if extracted_summary else user_query
             final_user_content_parts.append(Part.from_text(full_user_text))
 
-            # ★★★ ここが修正点です ★★★
-            # 添付画像の処理方法を、最新のライブラリの作法に修正
             if message.attachments and any(att.content_type.startswith("image/") for att in message.attachments):
                 image_attachment = next((att for att in message.attachments if att.content_type.startswith("image/")), None)
                 if image_attachment:
                     image_bytes = await image_attachment.read()
-                    # `mime_type`は、Part.from_dataの外で、辞書として渡すのが正しい作法です。
                     image_part = {"mime_type": image_attachment.content_type, "data": image_bytes}
                     final_user_content_parts.append(image_part)
 
@@ -867,9 +858,7 @@ async def on_message(message: discord.Message):
             relevant_context = await ask_learner_to_remember(user_query)
             magi_soul_record = await get_latest_magi_soul()
             gals_vocabulary = await get_gals_vocabulary()
-            
-            # TODO: dialogue_examplesの取得とプロンプトへの挿入
-            dialogue_example = "" # placeholder
+            dialogue_example = await get_dialogue_examples()
 
             system_prompt = ULTIMATE_PROMPT.replace("{{CHARACTER_STATES}}", f"みらいの気分:{character_states['mirai_mood']}, へー子の気分:{character_states['heko_mood']}, 直前のやり取り:{character_states['last_interaction_summary']}")\
                                            .replace("{{EMOTION_CONTEXT}}", f"imazineの感情:{emotion}")\
@@ -881,8 +870,6 @@ async def on_message(message: discord.Message):
             # 3. Gemini APIを呼び出し
             history = await build_history(message.channel, limit=15)
             model = genai.GenerativeModel(MODEL_PRO)
-            # ★★★ ここが修正点です ★★★
-            # system_instructionではなく、コンテンツの先頭にシステムプロンプトを配置します
             all_content = [{'role': 'system', 'parts': [system_prompt]}] + history + [{'role': 'user', 'parts': final_user_content_parts}]
             response = await model.generate_content_async(all_content)
             raw_response_text = response.text
@@ -902,7 +889,7 @@ async def on_message(message: discord.Message):
             else:
                 logging.error("AIからの応答が期待したJSON形式ではありませんでした。")
 
-            # 5. 事後処理（非同期タスク）
+            # 5. 事後処理
             history_text = "\n".join([f"{h['role']}: {h['parts'][0]}" for h in history[-5:]] + [f"user: {user_query}"])
             
             meta_analysis_text = await analyze_with_gemini(META_ANALYSIS_PROMPT.replace("{{conversation_history}}", history_text))
@@ -919,6 +906,7 @@ async def on_message(message: discord.Message):
 
         except Exception as e:
             logging.error(f"会話処理のメインループで予期せぬエラー: {e}", exc_info=True)
+
 
 @client.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
