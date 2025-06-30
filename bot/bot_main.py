@@ -352,7 +352,9 @@ async def ask_learner(endpoint: str, payload: Optional[Dict[str, Any]] = None, m
     """
     params = payload if method == 'GET' else None
     json_payload = payload if method in ['POST', 'PUT'] else None
-    url = f"{LEARNER_BASE_URL}/{endpoint}"
+    url = f"http://learner:8080/{endpoint}"
+    # Railwayのプライベートネットワーク内で、直接、Learnerサービスに接続します。
+    # # 'learner'は、Railwayサービス名、'8080'は、uvicornのデフォルトポートです。
 
     try:
         if client.http_session is None or client.http_session.closed:
