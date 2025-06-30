@@ -1,4 +1,4 @@
-# requirements.txt for Learner (ver.Ω++)
+# requirements.txt for Learner (ver.Ω++, The Final Truth)
 fastapi
 uvicorn
 google-generativeai
