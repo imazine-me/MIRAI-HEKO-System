@@ -20,65 +20,159 @@ import json
 
 # --- 1. 初期設定 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
-app = FastAPI(title="Learner API - The Soul of MIRAI-HEKO-Bot", version="4.0.0")
+app = FastAPI(
+    title="Learner API - The Soul of MIRAI-HEKO-Bot",
+    description="This API manages the long-term memory, style palette, character states, and soul records, based on imazine's final design.",
+    version="4.0.0"
+)
 
 # --- 2. クライアント初期化 ---
 try:
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    if not supabase_url or not supabase_key: raise ValueError("SupabaseのURL/キーが設定されていません。")
+    if not supabase_url or not supabase_key:
+        raise ValueError("SupabaseのURLまたはサービスロールキーが設定されていません。")
     supabase: Client = create_client(supabase_url, supabase_key)
-    
+    logging.info("Supabase client initialized successfully.")
+
     google_api_key = os.environ.get("GOOGLE_API_KEY")
-    if not google_api_key: raise ValueError("GOOGLE_API_KEYが設定されていません。")
+    if not google_api_key:
+        raise ValueError("GOOGLE_API_KEYが設定されていません。")
     genai.configure(api_key=google_api_key)
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=google_api_key)
     
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
-    vector_store = SupabaseVectorStore(client=supabase, embedding=embeddings, table_name="documents", query_name="match_documents")
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=google_api_key)
+    logging.info("Google Generative AI Embeddings initialized successfully.")
+
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=150,
+        length_function=len,
+        add_start_index=True,
+    )
+
+    # あなたのDB設計に完全に準拠したVector Store
+    vector_store = SupabaseVectorStore(
+        client=supabase,
+        embedding=embeddings,
+        table_name="documents",
+        query_name="match_documents"
+    )
+    logging.info(f"Supabase Vector Store initialized for table 'documents'.")
+
 except Exception as e:
-    logging.critical(f"FATAL: 初期化中にエラー: {e}")
+    logging.critical(f"FATAL: クライアント初期化中にエラー: {e}")
     raise e
 
-# --- 3. Pydanticモデル定義 ---
-class LearnRequest(BaseModel): text_content: str; metadata: Dict[str, Any] = {}
-class QueryRequest(BaseModel): query_text: str
-class StyleLearnRequest(BaseModel): image_url: str; source_prompt: Optional[str] = ""
-class CharacterState(BaseModel): mirai_mood: str; heko_mood: str; last_interaction_summary: str
-class Concern(BaseModel): user_id: str = "imazine"; concern_text: str
-class ResolveConcernRequest(BaseModel): concern_id: int
-class MagiSoulSyncRequest(BaseModel): learned_from_filename: str; soul_record: str
+# --- 3. Pydanticモデル定義 (基本機能) ---
+class LearnRequest(BaseModel):
+    text_content: str = Field(..., description="学習させたいテキスト本文。")
+    metadata: Dict[str, Any] = Field({}, description="テキストに関連するメタデータ。")
+
+class LearnResponse(BaseModel):
+    status: str = "success"
+    message: str
+
+class QueryRequest(BaseModel):
+    query_text: str = Field(..., description="記憶を検索するための問い合わせテキスト。")
+
+class QueryResponse(BaseModel):
+    status: str = "success"
+    documents: List[str] = Field(..., description="検索クエリに最も関連性の高い記憶の断片リスト。")
+
 
 # --- 4. APIエンドポイント (基本機能) ---
 
-@app.post("/learn", tags=["Memory"])
+@app.post("/learn", response_model=LearnResponse, tags=["Memory"])
 async def learn_document(request: LearnRequest):
+    """
+    新しい知識を学習し、`documents`テーブルにベクトルとして保管する。
+    また、学習履歴を`learning_history`テーブルに保存する。
+    """
+    if not request.text_content.strip():
+        raise HTTPException(status_code=400, detail="学習するテキスト内容が空です。")
     try:
-        docs = text_splitter.create_documents([request.text_content], metadatas=[request.metadata])
-        vector_store.add_documents(docs)
+        logging.info(f"新しい知識の学習を開始します。ソース: {request.metadata.get('filename', 'Unknown')}")
         
+        # テキストをチャンクに分割
+        docs = text_splitter.create_documents([request.text_content], metadatas=[request.metadata])
+        
+        # ベクトルストアにチャンクを追加
+        vector_store.add_documents(docs)
+        logging.info(f"{len(docs)}個のチャンクをベクトルストアに正常に追加しました。")
+
+        # `learning_history`テーブルに記録 (あなたのDB設計に準拠)
         history_record = {
-            "user_id": request.metadata.get("user_id"), "username": request.metadata.get("username"),
-            "filename": request.metadata.get("filename"), "file_size": request.metadata.get("file_size")
+            "user_id": request.metadata.get("user_id"),
+            "username": request.metadata.get("username"),
+            "filename": request.metadata.get("filename"),
+            "file_size": request.metadata.get("file_size")
         }
         supabase.table('learning_history').insert(history_record).execute()
-        return {"status": "success", "message": "Knowledge and history acquired."}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+        logging.info("Supabaseの`learning_history`への記録に成功しました。")
 
-@app.post("/query", tags=["Memory"])
+        return LearnResponse(message="Knowledge successfully acquired and history logged.")
+    except Exception as e:
+        logging.error(f"学習処理(/learn)中にエラーが発生しました: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+@app.post("/query", response_model=QueryResponse, tags=["Memory"])
 async def query_memory(request: QueryRequest):
+    """
+    問い合わせ内容に基づいて、`documents`テーブルから最も関連性の高い記憶を検索して返す。
+    """
+    if not request.query_text.strip():
+        raise HTTPException(status_code=400, detail="検索クエリが空です。")
     try:
-        docs = vector_store.similarity_search(request.query_text, k=5)
-        return {"documents": [doc.page_content for doc in docs]}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+        logging.info(f"記憶の検索を実行します。クエリ: 「{request.query_text}」")
+        
+        # 類似度検索を実行
+        docs = vector_store.similarity_search(query=request.query_text, k=5)
+        
+        response_docs = [doc.page_content for doc in docs]
+        logging.info(f"問い合わせに対して{len(response_docs)}件の関連する記憶を返却します。")
+        
+        return QueryResponse(documents=response_docs)
+    except Exception as e:
+        logging.error(f"記憶の検索(/query)中にエラーが発生しました: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @app.get("/", tags=["System"])
-async def root(): return {"message": "Learner is awake. The soul of imazine's world is waiting."}
+async def root():
+    """APIサーバーの生存確認用エンドポイント。"""
+    return {"message": "Learner is awake. The soul of imazine's world is waiting for a command."}
 
 # learner_main.py (ver.Ω++ - The True Final Version)
 # Part 2/2: Advanced Functions for Style, Emotion, Soul, and Growth
 
-# --- 5. APIエンドポイント (高度な機能) ---
+# --- 5. APIリクエスト/レスポンスモデル定義 (高度な機能) ---
+
+class StyleLearnRequest(BaseModel):
+    image_url: str = Field(..., description="学習させたい画風の画像URL。")
+    source_prompt: Optional[str] = Field("", description="その画像が生成された際の、元のプロンプト（もしあれば）。")
+
+class StyleLearnResponse(BaseModel):
+    status: str = "success"
+    message: str
+    style_id: int
+
+class CharacterState(BaseModel):
+    mirai_mood: str
+    heko_mood: str
+    last_interaction_summary: str
+
+class Concern(BaseModel):
+    user_id: str = "imazine"
+    concern_text: str
+
+class ResolveConcernRequest(BaseModel):
+    concern_id: int
+
+class MagiSoulSyncRequest(BaseModel):
+    learned_from_filename: str
+    soul_record: str
+
+
+# --- 6. APIエンドポイント (高度な機能) ---
 
 STYLE_ANALYSIS_PROMPT = """
 あなたは世界クラスの美術評論家です。添付された画像と、それが生成されたプロンプト（あれば）を元に、この画像の芸術的スタイルを詳細に分析し、結果を厳密なJSON形式で出力してください。
@@ -86,7 +180,7 @@ STYLE_ANALYSIS_PROMPT = """
 - 分析項目: 色彩(Color Palette), 光と影(Lighting & Shadow), 構図(Composition), 全体的な雰囲気(Overall Mood), 特徴的なキーワード(5個)
 """
 
-@app.post("/styles", tags=["Style Palette"])
+@app.post("/styles", response_model=StyleLearnResponse, tags=["Style Palette"])
 async def analyze_and_learn_style(request: StyleLearnRequest):
     """画像からスタイルを分析し、`styles`テーブルに保存する"""
     try:
@@ -94,17 +188,13 @@ async def analyze_and_learn_style(request: StyleLearnRequest):
         
         model = genai.GenerativeModel('gemini-2.5-pro-preview-03-25')
         
-        # URLから画像データを取得
         image_response = requests.get(request.image_url)
         image_response.raise_for_status()
         image_content = image_response.content
 
         prompt = STYLE_ANALYSIS_PROMPT.replace("{{source_prompt}}", request.source_prompt if request.source_prompt else "なし")
         
-        # Geminiに画像とプロンプトを渡して分析させる
-        response = await model.generate_content_async(
-            [prompt, {"mime_type": "image/jpeg", "data": image_content}]
-        )
+        response = await model.generate_content_async([prompt, {"mime_type": "image/jpeg", "data": image_content}])
         
         json_match = re.search(r'```json\n({.*?})\n```', response.text, re.DOTALL)
         if not json_match:
@@ -119,7 +209,7 @@ async def analyze_and_learn_style(request: StyleLearnRequest):
         }
         res = supabase.table('styles').insert(insert_data).execute()
         
-        return {"status": "success", "style_id": res.data[0]['id']}
+        return StyleLearnResponse(status="success", message="Style analyzed and learned.", style_id=res.data[0]['id'])
     except Exception as e:
         logging.error(f"スタイル学習(/styles)中にエラーが発生しました: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
@@ -137,7 +227,6 @@ async def get_styles():
 async def update_character_state(request: CharacterState):
     """キャラクターの最新の感情状態でDBを更新する"""
     try:
-        # 常に最新の1行だけを保持する設計
         supabase.table('character_states').delete().neq('id', 0).execute()
         supabase.table('character_states').insert(request.model_dump()).execute()
         return {"status": "success", "message": "Character state updated."}
